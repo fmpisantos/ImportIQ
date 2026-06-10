@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+.env
+.env.local
+.DS_Store
+
+# SQLite data store (generated at runtime)
+server/data/*.db
+server/data/*.db-journal
+server/data/*.db-wal
+server/data/*.db-shm
