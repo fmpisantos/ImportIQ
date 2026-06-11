@@ -10,16 +10,20 @@ import searchRouter from './routes/search.js';
 import exportRouter from './routes/export.js';
 
 const PORT = process.env.PORT ?? 3001;
+// Routes are mounted under a base path so the app sits behind the Caddy reverse
+// proxy in ../routing at /importiq/api/* (the proxy forwards the full path). Set
+// BASE_PATH='' to serve the API at the root /api/* instead.
+const BASE_PATH = (process.env.BASE_PATH ?? '/importiq').replace(/\/$/, '');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
-app.use('/api/config', configRouter);
-app.use('/api/settings', settingsRouter);
-app.use('/api', searchRouter); // exposes /api/search and /api/brands
-app.use('/api/export', exportRouter);
+app.get(`${BASE_PATH}/api/health`, (req, res) => res.json({ ok: true }));
+app.use(`${BASE_PATH}/api/config`, configRouter);
+app.use(`${BASE_PATH}/api/settings`, settingsRouter);
+app.use(`${BASE_PATH}/api`, searchRouter); // exposes /api/search and /api/brands
+app.use(`${BASE_PATH}/api/export`, exportRouter);
 
 // Centralised error handler.
 // eslint-disable-next-line no-unused-vars
@@ -32,5 +36,5 @@ app.use((err, req, res, next) => {
 getDb();
 
 app.listen(PORT, () => {
-  console.log(`ImportIQ API listening on http://localhost:${PORT} (data source: ${getDataSource()})`);
+  console.log(`ImportIQ API listening on http://localhost:${PORT}${BASE_PATH}/api (data source: ${getDataSource()})`);
 });

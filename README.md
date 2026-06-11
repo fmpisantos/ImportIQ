@@ -38,7 +38,14 @@ npm install          # installs server + web workspaces
 npm run dev          # backend on :3001, frontend on :5173 (proxied)
 ```
 
-Open http://localhost:5173, set filters, click **Run Bot**.
+Open http://localhost:5173/importiq/, set filters, click **Run Bot**.
+
+The app is served under the `/importiq/` path prefix so it can sit behind the
+shared Caddy reverse proxy (see `../routing`): `/importiq/*` → web on :5173,
+`/importiq/api/*` → API on :3001, both forwarded with the full path intact. The
+prefix is configured in one place per app — `base` in `web/vite.config.js` and
+the `BASE_PATH` env var in the server (default `/importiq`). Set `BASE_PATH=` to
+serve the API at the root `/api/*` instead.
 
 Other scripts:
 
