@@ -6,7 +6,7 @@
 // required config value is missing, the result is marked `incomplete` (with the
 // missing fields listed) rather than silently estimated.
 
-import { calculateISV } from './isv.js';
+import { calculateISV, normaliseFuel } from './isv.js';
 import { estimateIUC } from './iuc.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -23,15 +23,38 @@ export function computeLandedCost(listing, config) {
   const missing = [];
 
   // --- ISV (real, computed) ---
-  const isv = calculateISV({
-    displacementCm3: listing.displacementCm3,
-    co2GKm: listing.co2GKm,
-    fuelType: listing.fuelType,
-    emissionStandard: listing.emissionStandard ?? 'WLTP',
-    ageYears: listing.ageYears,
-    qualifiesForEvRegime: listing.qualifiesForEvRegime ?? false,
-    particleEmissionsGKm: listing.particleEmissionsGKm,
-  });
+  // Live-scraped listings can lack CO₂/displacement; computing the tables with
+  // null inputs silently yields a wrong (negative-environmental) ISV, so mark
+  // the result incomplete instead of estimating.
+  const combustion = normaliseFuel(listing.fuelType) !== 'electric';
+  if (combustion && listing.displacementCm3 == null) missing.push('listing.displacementCm3');
+  if (combustion && listing.co2GKm == null) missing.push('listing.co2GKm');
+
+  const isv =
+    combustion && (listing.displacementCm3 == null || listing.co2GKm == null)
+      ? {
+          fuel: normaliseFuel(listing.fuelType),
+          exempt: false,
+          unavailable: true,
+          specialRegime: 'none',
+          emissionStandard: listing.emissionStandard ?? 'WLTP',
+          cylinderComponent: null,
+          environmentalComponent: null,
+          ageReductionRate: 0,
+          baseISV: null,
+          dieselSurcharge: 0,
+          isv: null,
+          notes: ['Listing does not publish CO₂ and/or displacement — ISV cannot be computed.'],
+        }
+      : calculateISV({
+          displacementCm3: listing.displacementCm3,
+          co2GKm: listing.co2GKm,
+          fuelType: listing.fuelType,
+          emissionStandard: listing.emissionStandard ?? 'WLTP',
+          ageYears: listing.ageYears,
+          qualifiesForEvRegime: listing.qualifiesForEvRegime ?? false,
+          particleEmissionsGKm: listing.particleEmissionsGKm,
+        });
 
   // --- Transport (real, configured) ---
   let transport = { method: activeTransportMethod, amountEur: null, label: null };

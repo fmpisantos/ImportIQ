@@ -59,8 +59,25 @@ export default function ResultCard({ result }) {
 
       {result.incomplete && (
         <div className="incomplete-note">
-          Configure: {result.missingConfig.join(', ')} —{' '}
-          <Link to="/config">open Configuration</Link>
+          {(() => {
+            const missing = result.missingConfig ?? [];
+            const listingGaps = missing.filter((k) => k.startsWith('listing.'));
+            const configGaps = missing.filter((k) => !k.startsWith('listing.'));
+            return (
+              <>
+                {configGaps.length > 0 && (
+                  <>
+                    Configure: {configGaps.join(', ')} — <Link to="/config">open Configuration</Link>
+                    {listingGaps.length > 0 && '. '}
+                  </>
+                )}
+                {listingGaps.length > 0 &&
+                  `Listing doesn't publish: ${listingGaps
+                    .map((k) => k.replace('listing.', ''))
+                    .join(', ')} — ISV can't be computed.`}
+              </>
+            );
+          })()}
         </div>
       )}
 

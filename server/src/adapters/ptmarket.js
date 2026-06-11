@@ -1,14 +1,17 @@
 // Portugal market comparison adapter (PLAN.md §5).
 //
 // Dispatches on DATA_SOURCE (see config.js):
-//   - `mock`     → deterministic synthesised average (below), no credentials.
-//   - `official` → real OLX/Standvirtual query (./ptMarketClient.js), with a
-//                  24h cache (PLAN.md §9: PT prices are slow-moving).
+//   - `mock`             → deterministic synthesised average (below), no creds.
+//   - `direct` / `apify` → real PT asking prices via OLX.pt's open public JSON
+//                          API (./direct/olxpt.js) — no key needed.
+//   - `official`         → partner OLX/Standvirtual API (./ptMarketClient.js).
 //
-// Both expose the same `getComparison(listing)` shape.
+// Live results share a 24h cache (PLAN.md §9: PT prices are slow-moving).
+// All paths expose the same `getComparison(listing)` shape.
 
-import { isOfficial, getPtCacheTtlMs } from '../config.js';
+import { getDataSource, getPtCacheTtlMs } from '../config.js';
 import { getComparisonOfficial } from './ptMarketClient.js';
+import { getComparisonDirect } from './direct/olxpt.js';
 import { getCached, setCached } from '../db.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -56,23 +59,28 @@ export async function getComparisonMock(listing) {
 // --- Public dispatcher ------------------------------------------------------
 
 /**
- * PT market comparison for one listing. Mock returns immediately; official
- * checks the 24h cache, fetches on miss, and caches the result.
+ * PT market comparison for one listing. Mock returns immediately; live modes
+ * check the 24h cache, fetch on miss, and cache the result.
  *
- * @param {object} listing  normalised mobile.de listing
+ * @param {object} listing  normalised listing
  * @param {object} [opts]   { now } epoch ms, for cache freshness
  * @returns {Promise<{ avgPriceEur: number|null, sampleSize: number,
  *                     source: string, criteria: object }>}
  */
 export async function getComparison(listing, opts = {}) {
-  if (!isOfficial()) return getComparisonMock(listing);
+  const source = getDataSource();
+  if (source === 'mock') return getComparisonMock(listing);
 
   const now = opts.now ?? Date.now();
   const key = cacheKey(listing);
   const cached = getCached('pt_market_cache', key, getPtCacheTtlMs(), now);
   if (cached) return cached;
 
-  const comparison = await getComparisonOfficial(listing);
+  const comparison =
+    source === 'official'
+      ? await getComparisonOfficial(listing)
+      : await getComparisonDirect(listing); // direct + apify: keyless OLX.pt
+
   setCached('pt_market_cache', key, comparison, now);
   return comparison;
 }

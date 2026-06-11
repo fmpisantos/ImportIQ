@@ -1,7 +1,8 @@
 ---
 title: Automated tests for the runtime settings API (routes/settings.js)
 created: 2026-06-10
-status: todo
+status: done
+completed: 2026-06-11
 priority: medium
 ---
 
@@ -33,3 +34,13 @@ wrong data source.
 - The `/test` probe hits the network (Apify `users/me`, mobile.de refdata) — stub
   `fetch` or skip it in the offline suite.
 - Pairs with `2026-06-10-apify-aggregator-tests.md` (same offline-test style).
+
+## Outcome
+Shipped 2026-06-11 as `server/test/settingsRoutes.test.js` (16 tests, all
+green alongside the 37 existing ones, fully offline in ~300ms). Covers GET
+provenance + secret masking (raw value asserted absent from GET *and* PUT
+responses), PUT persistence / blank-secret no-op / clear, all validation
+rejections incl. the new `direct` source and `direct_max_results`, batch
+atomicity, override→env→default precedence via `getDataSource()`, and the
+POST /test probes (mock, direct with mobile.de skipped / bad Apify token /
+blocked AS24) with the process-global fetch stubbed to pass localhost through.

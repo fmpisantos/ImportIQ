@@ -9,7 +9,7 @@
 import { getApifyConfig } from '../config.js';
 import { runActor } from './apifyClient.js';
 import { getCached, setCached } from '../db.js';
-import { matchesFilters } from './normalize.js';
+import { matchesFilters, dedupeListings } from './normalize.js';
 import * as mobilede from './sites/mobilede.js';
 import * as autoscout24 from './sites/autoscout24.js';
 import * as autouncle from './sites/autouncle.js';
@@ -51,6 +51,16 @@ async function searchSite(site, filters, referenceYear, now) {
 }
 
 /**
+ * Run one site's Apify scraper by key (cached, mapped, post-filtered, tagged).
+ * Used by the direct mode's hybrid path to add mobile.de when a token is set.
+ */
+export async function searchSiteApify(siteKey, filters, referenceYear, now) {
+  const site = SITES[siteKey];
+  if (!site) throw new Error(`Unknown Apify site: ${siteKey}`);
+  return searchSite(site, filters, referenceYear, now);
+}
+
+/**
  * @param {object} filters  see PLAN.md §3
  * @param {object} [opts]   { now } epoch ms (testability)
  * @returns {Promise<object[]>} normalised, filtered, deduped listings
@@ -81,21 +91,6 @@ export async function searchListingsApify(filters = {}, opts = {}) {
     throw new Error(`All Apify sources failed. ${errors.join('; ')}`);
   }
 
-  return dedupe(listings);
-}
-
-// Drop obvious cross-source duplicates (AutoUncle aggregates the others). Key on
-// brand+model+year+price+mileage; first occurrence wins.
-function dedupe(listings) {
-  const seen = new Set();
-  const out = [];
-  for (const l of listings) {
-    const k = [l.brand, l.model, l.year, l.priceEur, l.mileageKm]
-      .map((v) => String(v ?? '').toLowerCase())
-      .join('|');
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(l);
-  }
-  return out;
+  // AutoUncle aggregates the other sites, so duplicates are common here.
+  return dedupeListings(listings);
 }

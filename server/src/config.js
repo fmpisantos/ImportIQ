@@ -11,12 +11,13 @@
 // endpoints use:
 //
 //   mock      → deterministic sample data (default; no credentials needed)
+//   direct    → keyless live scraping: AutoScout24 listings + OLX.pt comparison
 //   official  → real mobile.de Search API + official PT source
 //   apify     → live mobile.de + AutoScout24 + AutoUncle via Apify scrapers
 //
 // The app intentionally defaults to `mock` so it runs end-to-end before any
-// accounts/keys exist. Flip to `official` or `apify` from the Settings page once
-// credentials are set.
+// accounts/keys exist. `direct` needs no credentials either — flip to it from
+// the Settings page for real data, or to `official`/`apify` once keys are set.
 
 import { getRuntimeSettings } from './db.js';
 
@@ -30,13 +31,29 @@ function rt(key, fallback) {
 
 const bool = (v, dflt) => (v == null || v === '' ? dflt : /^(1|true|yes)$/i.test(v));
 
-/** The active data-source mode: 'mock' | 'official' | 'apify'. */
+/** The active data-source mode: 'mock' | 'direct' | 'official' | 'apify'. */
 export function getDataSource() {
   return String(rt('data_source', process.env.DATA_SOURCE ?? 'mock')).toLowerCase();
 }
 
 export const isOfficial = () => getDataSource() === 'official';
 export const isApify = () => getDataSource() === 'apify';
+
+// --- Direct (keyless scraping: AutoScout24 pages + OLX.pt public API) -------
+export function getDirectConfig() {
+  return {
+    // Max listings to pull per search (AS24 serves 20 per page).
+    maxResults: Number(rt('direct_max_results', process.env.DIRECT_MAX_RESULTS ?? 60)),
+    // Cache each filter-set's results this long.
+    cacheTtlMs: Number(process.env.DIRECT_CACHE_TTL_MS ?? 6 * 60 * 60 * 1000),
+    // Pause between successive search-page fetches (politeness).
+    requestDelayMs: Number(process.env.DIRECT_REQUEST_DELAY_MS ?? 300),
+    // Cap detail-page fetches per search when filling in missing CO₂.
+    enrichLimit: Number(process.env.DIRECT_ENRICH_LIMIT ?? 25),
+    // AutoScout24 search country code (D = Germany).
+    autoscout24Country: process.env.DIRECT_AS24_COUNTRY ?? 'D',
+  };
+}
 
 export function getMobiledeConfig() {
   return {
@@ -71,7 +88,10 @@ export function getApifyConfig() {
 
     // Per-site actor ids + options. Override the actor only if you prefer another.
     actors: {
-      mobilede: process.env.APIFY_MOBILEDE_ACTOR ?? '3x1t/mobile-de-scraper',
+      // Pay-per-result variant ($0.80/1k results) — works with just a token, no
+      // monthly rental. The same dev's '3x1t/mobile-de-scraper' is a $9.99/month
+      // rental + compute, cheaper only above ~20k results/month.
+      mobilede: process.env.APIFY_MOBILEDE_ACTOR ?? '3x1t/mobile-de-scraper-ppr',
       autoscout24: process.env.APIFY_AUTOSCOUT24_ACTOR ?? 'automation-lab/autoscout24-scraper',
       autouncle: process.env.APIFY_AUTOUNCLE_ACTOR ?? 'lofomachines/autouncle-scraper',
     },

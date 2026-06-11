@@ -1,7 +1,8 @@
 ---
 title: Confirm/replace PT market read access for comparisons
 created: 2026-06-10
-status: todo
+status: done
+completed: 2026-06-11
 priority: medium
 ---
 
@@ -21,3 +22,10 @@ verdict, so it must be backed by real data, not guesses.
 - The adapter boundary makes a provider swap a localised change; could reuse the
   new Apify path (`adapters/apifyClient.js`) with a Standvirtual/OLX scraper.
 - See README "PT read-access caveat".
+
+## Outcome
+Closed 2026-06-11 without implementation — obsolete. The direct-scrape pivot
+(`DONE/2026-06-11-direct-scrape-data-source.md`) backs the PT comparison with
+the keyless OLX.pt open API (real data, verified live), so confirming partner
+API read access no longer blocks anything. `ptMarketClient.js` remains only as
+the optional `official` path for users who do hold credentials.

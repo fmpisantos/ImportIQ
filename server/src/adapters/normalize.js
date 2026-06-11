@@ -92,6 +92,25 @@ export function slugify(value) {
 const norm = (s) => String(s ?? '').trim().toLowerCase();
 
 /**
+ * Drop obvious cross-source duplicates (the same car listed on two sites).
+ * Keys on brand+model+year+price+mileage; first occurrence wins, so order the
+ * input by source preference.
+ */
+export function dedupeListings(listings) {
+  const seen = new Set();
+  const out = [];
+  for (const l of listings) {
+    const k = [l.brand, l.model, l.year, l.priceEur, l.mileageKm]
+      .map((v) => String(v ?? '').toLowerCase())
+      .join('|');
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(l);
+  }
+  return out;
+}
+
+/**
  * Defensive post-filter applied to every source's results, so the listings the
  * user gets back always satisfy their filters — even if a particular actor
  * ignored a parameter or matched it loosely. Listings missing a field aren't
@@ -106,7 +125,13 @@ export function matchesFilters(listing, filters = {}) {
       : null;
 
   if (brand && listing.brand && norm(listing.brand) !== norm(brand)) return false;
-  if (model && listing.model && !norm(listing.model).includes(norm(model))) return false;
+  // Sites name models at different granularities ("A4 Avant" vs "A4", "320" vs
+  // "3er") — keep the listing when either name contains the other.
+  if (model && listing.model) {
+    const lm = norm(listing.model);
+    const fm = norm(model);
+    if (!lm.includes(fm) && !fm.includes(lm)) return false;
+  }
   if (bodyType && listing.bodyType && norm(listing.bodyType) !== norm(bodyType)) return false;
   if (priceMin != null && listing.priceEur != null && listing.priceEur < priceMin) return false;
   if (priceMax != null && listing.priceEur != null && listing.priceEur > priceMax) return false;

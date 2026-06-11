@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
 const SOURCES = [
+  { key: 'direct', label: 'Direct (free, no key)', blurb: 'Live AutoScout24 listings + real OLX.pt market comparison, scraped directly — no credentials, no cost. Automatically adds mobile.de when a key for it is saved. Recommended real-data path.' },
   { key: 'mock', label: 'Mock (sample data)', blurb: 'Deterministic sample listings — no credentials, full flow works offline. Great for a first end-to-end test.' },
-  { key: 'apify', label: 'Apify (live scraping)', blurb: 'Live mobile.de + AutoScout24 + AutoUncle via Apify actors. Needs an Apify token (paid). This is the recommended real-data path.' },
+  { key: 'apify', label: 'Apify (live scraping)', blurb: 'Live mobile.de + AutoScout24 + AutoUncle via Apify actors. Needs an Apify token (paid). Adds mobile.de coverage on top of direct.' },
   { key: 'official', label: 'Official mobile.de API', blurb: 'Real mobile.de Search API. Needs a mobile.de dealer account (username + password).' },
 ];
 
@@ -36,6 +37,34 @@ function SecretField({ label, name, field, value, onChange, cleared, onToggleCle
   );
 }
 
+// In direct mode mobile.de joins the search only when a key for it is saved:
+// dealer credentials beat an Apify token; with neither it's simply skipped.
+function MobiledeStatus({ fields }) {
+  const viaDealer = !!(fields.mobilede_user.value && fields.mobilede_pass.set);
+  const viaApify = !!fields.apify_token.set;
+  if (viaDealer) {
+    return (
+      <p className="muted small">
+        <strong>mobile.de: included</strong> — using the saved dealer credentials (official API).
+      </p>
+    );
+  }
+  if (viaApify) {
+    return (
+      <p className="muted small">
+        <strong>mobile.de: included</strong> — using the saved Apify token (pay-per-result scraper,
+        ~$0.04 per fresh 50-listing search).
+      </p>
+    );
+  }
+  return (
+    <p className="muted small">
+      <strong>mobile.de: not included</strong> — it blocks free scraping. Save an Apify token or
+      dealer credentials below and it joins the search automatically.
+    </p>
+  );
+}
+
 function SourceTag({ source }) {
   if (!source || source === 'unset') return <span className="source-tag unset">not set</span>;
   const labels = { override: 'saved here', env: 'from .env', default: 'default' };
@@ -63,6 +92,7 @@ export default function SettingsPage() {
         apify_use_proxy: /^(1|true|yes)$/i.test(f.apify_use_proxy.value),
         mobilede_user: f.mobilede_user.value || '',
         pt_provider: f.pt_provider.value,
+        direct_max_results: f.direct_max_results.value,
         // secret inputs start blank — placeholder shows whether one is stored
         apify_token: '',
         mobilede_pass: '',
@@ -106,6 +136,7 @@ export default function SettingsPage() {
       apify_use_proxy: form.apify_use_proxy ? 'true' : 'false',
       mobilede_user: form.mobilede_user,
       pt_provider: form.pt_provider,
+      direct_max_results: String(form.direct_max_results),
     };
     for (const k of SECRET_KEYS) if (form[k] && !clear.has(k)) updates[k] = form[k];
     try {
@@ -168,9 +199,38 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* Direct scraping */}
+      <section className={`card ${active === 'direct' ? '' : 'dim'}`}>
+        <h3>Direct scraping <span className="muted small">— no credentials needed</span></h3>
+        <p className="muted small">
+          Listings come straight from AutoScout24&apos;s public search pages; the PT comparison uses
+          OLX.pt&apos;s open API. Results are cached, and listings missing CO₂ get it filled in from
+          their detail page automatically.
+        </p>
+        <MobiledeStatus fields={f} />
+        <div className="grid">
+          <label>
+            Max listings per search
+            <input
+              type="number"
+              min="1"
+              value={form.direct_max_results}
+              onChange={(e) => set({ direct_max_results: e.target.value })}
+            />
+            <span className="field-meta"><SourceTag source={f.direct_max_results.source} /></span>
+          </label>
+        </div>
+      </section>
+
       {/* Apify */}
-      <section className={`card ${active === 'apify' ? '' : 'dim'}`}>
+      <section className={`card ${active === 'apify' || active === 'direct' ? '' : 'dim'}`}>
         <h3>Apify <span className="muted small">— for live scraping</span></h3>
+        {active === 'direct' && (
+          <p className="muted small">
+            In direct mode only the token matters here: when saved, mobile.de listings are added via
+            its pay-per-result scraper. Sites/proxy below apply to the Apify source only.
+          </p>
+        )}
         <div className="grid">
           <SecretField
             label="Apify token"
@@ -217,8 +277,14 @@ export default function SettingsPage() {
       </section>
 
       {/* mobile.de official */}
-      <section className={`card ${active === 'official' ? '' : 'dim'}`}>
+      <section className={`card ${active === 'official' || active === 'direct' ? '' : 'dim'}`}>
         <h3>mobile.de official API <span className="muted small">— dealer account</span></h3>
+        {active === 'direct' && (
+          <p className="muted small">
+            In direct mode, saved dealer credentials add mobile.de via the official API (free, and
+            takes precedence over the Apify token).
+          </p>
+        )}
         <div className="grid">
           <label>
             Username
@@ -246,8 +312,9 @@ export default function SettingsPage() {
       <section className="card">
         <h3>PT market comparison</h3>
         <p className="muted small">
-          Provider used for the Portuguese price comparison (the Save/Premium verdict). Read access for
-          market search is provider-dependent — see the README caveat.
+          Provider used for the Portuguese price comparison (the Save/Premium verdict). In
+          <strong> direct</strong> and <strong>apify</strong> modes the comparison uses OLX.pt&apos;s open
+          API — no key needed; the credentials below only apply to the <strong>official</strong> source.
         </p>
         <div className="grid">
           <label>

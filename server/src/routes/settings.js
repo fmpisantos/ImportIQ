@@ -11,6 +11,7 @@
 import { Router } from 'express';
 import { getRuntimeSettings, setActiveSetting, getDb } from '../db.js';
 import { getDataSource, getApifyConfig, getMobiledeConfig } from '../config.js';
+import { mobiledeAccess } from '../adapters/directSearch.js';
 
 const router = Router();
 
@@ -18,6 +19,7 @@ const router = Router();
 // whether the value is a secret (masked in GET, never echoed back).
 const FIELDS = [
   { key: 'data_source', env: 'DATA_SOURCE', default: 'mock' },
+  { key: 'direct_max_results', env: 'DIRECT_MAX_RESULTS', default: '60' },
   { key: 'apify_token', env: 'APIFY_TOKEN', secret: true },
   { key: 'apify_sites', env: 'APIFY_SITES', default: 'mobilede,autoscout24,autouncle' },
   { key: 'apify_max_per_site', env: 'APIFY_MAX_PER_SITE', default: '50' },
@@ -31,7 +33,7 @@ const FIELDS = [
 const FIELD_BY_KEY = Object.fromEntries(FIELDS.map((f) => [f.key, f]));
 
 const VALID_SITES = ['mobilede', 'autoscout24', 'autouncle'];
-const VALID_SOURCES = ['mock', 'official', 'apify'];
+const VALID_SOURCES = ['mock', 'direct', 'official', 'apify'];
 const VALID_PROVIDERS = ['olx', 'standvirtual'];
 const BOOLISH = /^(1|0|true|false|yes|no)$/i;
 
@@ -76,6 +78,8 @@ function validate(key, value) {
       return VALID_PROVIDERS.includes(v.toLowerCase()) ? null : `pt_provider must be one of ${VALID_PROVIDERS.join(', ')}`;
     case 'apify_max_per_site':
       return Number.isFinite(Number(v)) && Number(v) > 0 ? null : 'apify_max_per_site must be a positive number';
+    case 'direct_max_results':
+      return Number.isFinite(Number(v)) && Number(v) > 0 ? null : 'direct_max_results must be a positive number';
     case 'apify_use_proxy':
       return BOOLISH.test(v) ? null : 'apify_use_proxy must be a boolean';
     case 'apify_sites': {
@@ -137,6 +141,50 @@ router.post('/test', async (req, res) => {
       const username = result.body?.data?.username ?? 'unknown';
       return res.json({ ok: true, source, message: `Apify token valid — authenticated as “${username}”.` });
     }
+    if (source === 'direct') {
+      // No credentials to validate — probe that both sites answer from this
+      // network: an AutoScout24 search page with embedded JSON, and OLX.pt's
+      // public offers API.
+      const ua = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36' };
+      const [as24, olx] = await Promise.all([
+        timedText('https://www.autoscout24.de/lst?atype=C&cy=D&page=1', ua),
+        timed('https://www.olx.pt/api/v1/offers/?category_id=378&limit=1', { ...ua, Accept: 'application/json' }),
+      ]);
+      const as24Ok = as24.ok && as24.body.includes('__NEXT_DATA__');
+      const olxOk = olx.ok && Array.isArray(olx.body?.data);
+      if (!as24Ok || !olxOk) {
+        const broken = [!as24Ok && `AutoScout24 (HTTP ${as24.status})`, !olxOk && `OLX.pt (HTTP ${olx.status})`]
+          .filter(Boolean)
+          .join(' and ');
+        return res.status(400).json({ ok: false, source, error: `Direct scraping probe failed for ${broken}. The site may be blocking this network — try again or switch source.` });
+      }
+
+      // mobile.de joins the search only when a key for it is saved — validate
+      // whichever one would be used so a bad key surfaces here, not mid-search.
+      const access = mobiledeAccess();
+      let mobiledeStatus = 'mobile.de skipped — no dealer login or Apify token saved.';
+      if (access === 'official') {
+        const { username, password, baseUrl } = getMobiledeConfig();
+        const auth = Buffer.from(`${username}:${password}`).toString('base64');
+        const probe = await timed(`${baseUrl}/refdata/classes/Car/makes`, {
+          Authorization: `Basic ${auth}`,
+          Accept: 'application/vnd.de.mobile.api+json',
+        });
+        if (!probe.ok) {
+          return res.status(400).json({ ok: false, source, error: `mobile.de dealer credentials are saved but rejected (HTTP ${probe.status}). Fix or clear them.` });
+        }
+        mobiledeStatus = 'mobile.de included via the official dealer API.';
+      } else if (access === 'apify') {
+        const { token } = getApifyConfig();
+        const probe = await timed(`https://api.apify.com/v2/users/me?token=${encodeURIComponent(token)}`);
+        if (!probe.ok) {
+          return res.status(400).json({ ok: false, source, error: `An Apify token is saved but rejected (HTTP ${probe.status}). Fix or clear it.` });
+        }
+        mobiledeStatus = `mobile.de included via Apify (authenticated as “${probe.body?.data?.username ?? 'unknown'}”, pay-per-result).`;
+      }
+
+      return res.json({ ok: true, source, message: `Direct scraping reachable — AutoScout24 (listings) and OLX.pt (PT comparison) both answered. ${mobiledeStatus}` });
+    }
     if (source === 'official') {
       const { username, password, baseUrl } = getMobiledeConfig();
       if (!username || !password) {
@@ -159,12 +207,15 @@ router.post('/test', async (req, res) => {
 });
 
 // GET with a 10s timeout; returns { ok, status, body? }.
-async function timed(url, headers) {
+async function timed(url, headers, parse = 'json') {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch(url, { headers, signal: controller.signal });
-    const body = await res.json().catch(() => null);
+    const body =
+      parse === 'text'
+        ? await res.text().catch(() => '')
+        : await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, body };
   } catch (err) {
     if (err.name === 'AbortError') throw new Error('Connection test timed out after 10s');
@@ -173,5 +224,7 @@ async function timed(url, headers) {
     clearTimeout(timer);
   }
 }
+
+const timedText = (url, headers) => timed(url, headers, 'text');
 
 export default router;

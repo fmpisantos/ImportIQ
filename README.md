@@ -12,20 +12,24 @@ market. See [`PLAN.md`](./PLAN.md) for the full product spec.
 - **`web/`** — React + Vite single-page app: Search, Results, Configuration.
 
 The ISV engine, config store, REST API and UI are real and run end-to-end. The
-data adapters support three modes via the `DATA_SOURCE` env var:
+data adapters support four modes via the `DATA_SOURCE` env var (or the
+Settings page):
 
 - **`mock`** (default) — deterministic sample data, no credentials needed.
+- **`direct`** — **free, keyless live data**: AutoScout24 listings scraped
+  straight from its public search pages (the results JSON is embedded in the
+  HTML), and the PT market comparison from **OLX.pt's open public API**. No
+  account, no token, no cost. Recommended real-data path.
 - **`apify`** — live listings scraped from **mobile.de, AutoScout24 and
-  AutoUncle** via [Apify](https://apify.com) Store actors. Needs only an
-  `APIFY_TOKEN` (pay-as-you-go) — no dealer account. This is the practical way
-  to actually search all three sites.
+  AutoUncle** via [Apify](https://apify.com) Store actors. Needs an
+  `APIFY_TOKEN` (pay-as-you-go). Use this when you also want mobile.de, which
+  blocks plain scraping.
 - **`official`** — real **mobile.de Search API** (German listings, B2B/dealer
   credentials only) and an official Portuguese source (OLX / Standvirtual) for
   market comparison.
 
-All adapters are fully wired but require credentials (see
-[Data sources](#data-sources) below). Until you set them, the app runs on the
-mock so everything still works.
+Only `apify` and `official` need credentials (see
+[Data sources](#data-sources) below). `direct` works out of the box.
 
 ## Quick start
 
@@ -49,10 +53,12 @@ npm start            # run the API alone
 ```
 server/src/
   engine/      isv.js, isvTables.js, iuc.js, landedCost.js   ← real, deterministic
-  adapters/    source.js          ← dispatcher: mock | official | apify
+  adapters/    source.js          ← dispatcher: mock | direct | official | apify
                mobilede.js        ← mobile.de mock + official Search API
+               directSearch.js    ← keyless scraping orchestrator (DATA_SOURCE=direct)
+               direct/{autoscout24,olxpt}.js  ← direct AS24 pages + OLX.pt open API
                apifySearch.js, apifyClient.js, normalize.js
-               sites/{mobilede,autoscout24,autouncle}.js     ← per-site scrapers
+               sites/{mobilede,autoscout24,autouncle}.js     ← per-site Apify adapters
                ptmarket.js, brands.js
   routes/      config.js, search.js, export.js
   db.js        SQLite schema + migrate + seed (PLAN §4.6)
@@ -76,10 +82,31 @@ web/src/
 
 ## Data sources
 
-By default `DATA_SOURCE=mock`. To use real data, copy `.env.example` → `.env`,
-pick a source, and fill in credentials.
+By default `DATA_SOURCE=mock`. To use real data, pick a source on the
+Settings page (or via `.env`).
 
-### Option A — Apify scrapers (recommended: all three sites, no dealer account)
+### Option 0 — Direct scraping (recommended: free, no credentials)
+
+Set `DATA_SOURCE=direct`. Nothing else to configure.
+
+- **Listings — AutoScout24**: the public search pages embed the full result
+  JSON (`__NEXT_DATA__`), 20 listings per page; we paginate up to
+  `DIRECT_MAX_RESULTS` (default 60) with a small delay between pages. Listings
+  whose search card omits CO₂ are enriched from their detail page (capped by
+  `DIRECT_ENRICH_LIMIT`, cached 7 days — a listing's specs never change).
+  Listings that don't publish CO₂/displacement anywhere are flagged
+  **Incomplete** rather than getting a made-up ISV.
+- **PT comparison — OLX.pt**: open public JSON API (`/api/v1/offers/`), no key.
+  Brands map to OLX subcategories; year and mileage are real API filters and
+  the model is matched as free text. Also used in `apify` mode.
+- **mobile.de — automatic when a key is saved**: mobile.de blocks plain HTTP
+  (Akamai 403), so it joins the direct search only if you save a key for it on
+  the Settings page — dealer credentials (official API, free) take precedence
+  over an Apify token (pay-per-result scraper, ~$0.80/1,000 listings). With
+  neither, the search simply runs on AutoScout24 alone. AutoUncle (also 403)
+  stays Apify-only.
+
+### Option A — Apify scrapers (adds mobile.de + AutoUncle, needs a token)
 
 Set `DATA_SOURCE=apify` and an `APIFY_TOKEN` (from the
 [Apify console](https://console.apify.com), Settings → Integrations). Billing is

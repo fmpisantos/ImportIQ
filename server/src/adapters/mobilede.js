@@ -178,6 +178,24 @@ function listBrandsAndModelsMock() {
 // --- Public dispatchers -----------------------------------------------------
 
 /**
+ * Search mobile.de via the official Search API regardless of DATA_SOURCE —
+ * handles the refdata cache. Used by the `official` mode and by the direct
+ * mode's hybrid path when dealer credentials are saved.
+ *
+ * @param {object} filters  see PLAN.md §3
+ * @param {object} [opts]   { now } epoch ms, used for refdata cache freshness
+ * @returns {Promise<object[]>} normalised listings
+ */
+export async function searchListingsViaOfficialApi(filters = {}, opts = {}) {
+  const now = opts.now ?? Date.now();
+  const refdataTree = await getRefdataTree(now);
+  return searchListingsOfficial(filters, {
+    refdataTree,
+    referenceYear: filters.referenceYear ?? new Date(now).getFullYear(),
+  });
+}
+
+/**
  * Search mobile.de listings. Routes to the mock or the official Search API
  * depending on DATA_SOURCE.
  *
@@ -187,12 +205,7 @@ function listBrandsAndModelsMock() {
  */
 export async function searchListings(filters = {}, opts = {}) {
   if (!isOfficial()) return searchListingsMock(filters);
-  const now = opts.now ?? Date.now();
-  const refdataTree = await getRefdataTree(now);
-  return searchListingsOfficial(filters, {
-    refdataTree,
-    referenceYear: filters.referenceYear ?? new Date(now).getFullYear(),
-  });
+  return searchListingsViaOfficialApi(filters, opts);
 }
 
 /**
