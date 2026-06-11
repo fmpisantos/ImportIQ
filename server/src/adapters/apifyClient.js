@@ -4,7 +4,7 @@
 //
 // Docs: https://docs.apify.com/api/v2#/reference/actors/run-actor-synchronously-with-input-and-get-dataset-items
 
-import { apifyConfig, requireCreds } from '../config.js';
+import { getApifyConfig, requireCreds } from '../config.js';
 
 const BASE_URL = 'https://api.apify.com/v2';
 
@@ -19,6 +19,7 @@ const BASE_URL = 'https://api.apify.com/v2';
  * @returns {Promise<object[]>} dataset items (raw, unmapped)
  */
 export async function runActor(actorId, input, opts = {}) {
+  const apifyConfig = getApifyConfig();
   requireCreds('Apify', { APIFY_TOKEN: apifyConfig.token });
 
   const { maxItems, timeoutMs = apifyConfig.runTimeoutMs } = opts;
@@ -58,5 +59,5 @@ export async function runActor(actorId, input, opts = {}) {
 
 /** Apify standard proxy config object, or undefined when disabled. */
 export function proxyInput() {
-  return apifyConfig.useProxy ? { useApifyProxy: true } : undefined;
+  return getApifyConfig().useProxy ? { useApifyProxy: true } : undefined;
 }

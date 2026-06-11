@@ -9,7 +9,7 @@
 // are best-effort and tolerant; adjust the field paths once the granted API's
 // real schema is known.
 
-import { ptMarketConfig, requireCreds } from '../config.js';
+import { getPtMarketConfig, requireCreds } from '../config.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -51,7 +51,7 @@ async function httpGetJson(url, headers) {
 
 // --- OLX Portugal ----------------------------------------------------------
 async function fetchOlx(listing, criteria) {
-  const { baseUrl, apiKey } = ptMarketConfig.olx;
+  const { baseUrl, apiKey } = getPtMarketConfig().olx;
   requireCreds('OLX', { OLX_API_KEY: apiKey });
   const params = new URLSearchParams({
     category: 'cars',
@@ -71,7 +71,7 @@ async function fetchOlx(listing, criteria) {
 
 // --- Standvirtual ----------------------------------------------------------
 async function fetchStandvirtual(listing, criteria) {
-  const { baseUrl, token } = ptMarketConfig.standvirtual;
+  const { baseUrl, token } = getPtMarketConfig().standvirtual;
   requireCreds('Standvirtual', { STANDVIRTUAL_TOKEN: token });
   const params = new URLSearchParams({
     make: listing.brand ?? '',
@@ -95,7 +95,7 @@ async function fetchStandvirtual(listing, criteria) {
  */
 export async function getComparisonOfficial(listing) {
   const criteria = comparisonCriteria(listing);
-  const provider = ptMarketConfig.provider;
+  const provider = getPtMarketConfig().provider;
   const items =
     provider === 'standvirtual'
       ? await fetchStandvirtual(listing, criteria)

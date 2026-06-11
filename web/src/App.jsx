@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
 import SearchPage from './pages/SearchPage.jsx';
 import ConfigPage from './pages/ConfigPage.jsx';
+import SettingsPage from './pages/SettingsPage.jsx';
 
 export default function App() {
   return (
@@ -16,6 +17,9 @@ export default function App() {
           <NavLink to="/config" className={({ isActive }) => (isActive ? 'active' : '')}>
             Configuration
           </NavLink>
+          <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Settings
+          </NavLink>
         </nav>
       </header>
 
@@ -23,6 +27,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<SearchPage />} />
           <Route path="/config" element={<ConfigPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
 

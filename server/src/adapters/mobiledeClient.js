@@ -2,27 +2,28 @@
 // (make/model) lookup. Node 22 provides global `fetch`, so no HTTP dependency
 // is needed. Pure mapping lives in ./mobiledeMap.js.
 
-import { mobiledeConfig, requireCreds } from '../config.js';
+import { getMobiledeConfig, requireCreds } from '../config.js';
 import { buildSearchParams, mapAd } from './mobiledeMap.js';
 
 const ACCEPT_JSON = 'application/vnd.de.mobile.api+json';
 const PAGE_SIZE = 100; // API max
 const MAX_ADS = 2000; // API hard cap across paginated pages
 
-function authHeader() {
+function authHeader(mobiledeConfig) {
   const { username, password } = mobiledeConfig;
   const token = Buffer.from(`${username}:${password}`).toString('base64');
   return `Basic ${token}`;
 }
 
 async function apiGet(path, params) {
+  const mobiledeConfig = getMobiledeConfig();
   requireCreds('mobile.de', {
     MOBILEDE_USER: mobiledeConfig.username,
     MOBILEDE_PASS: mobiledeConfig.password,
   });
   const qs = params ? `?${params.toString()}` : '';
   const res = await fetch(`${mobiledeConfig.baseUrl}${path}${qs}`, {
-    headers: { Authorization: authHeader(), Accept: ACCEPT_JSON },
+    headers: { Authorization: authHeader(mobiledeConfig), Accept: ACCEPT_JSON },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');

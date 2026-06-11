@@ -138,6 +138,47 @@ select:disabled { opacity: 0.5; }
 .hint { padding: 30px 0; text-align: center; }
 .footnote { color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); margin-top: 40px; padding-top: 16px; line-height: 1.5; }
 
+/* ---- Settings ---- */
+.settings-page h3 { margin-top: 0; }
+.card.dim { opacity: 0.6; }
+.card.dim:focus-within, .card.dim:hover { opacity: 1; }
+
+.source-options { display: flex; flex-direction: column; gap: 10px; }
+.source-option {
+  flex-direction: row; align-items: flex-start; gap: 12px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  color: var(--text);
+}
+.source-option.selected { border-color: var(--accent); background: rgba(79,140,255,0.08); }
+.source-option input { margin-top: 3px; }
+.source-option-label { font-weight: 600; font-size: 14px; }
+
+.secret-field input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.field-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.source-tag {
+  display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.source-tag.override { color: var(--green); border-color: var(--green); }
+.source-tag.env { color: var(--accent); border-color: var(--accent); }
+.source-tag.unset { color: var(--amber); border-color: var(--amber); }
+.linkish {
+  background: none; border: none; color: var(--accent); cursor: pointer;
+  font-size: 12px; padding: 0; text-decoration: underline;
+}
+
+.sites-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.switch.inline { margin-top: 4px; color: var(--text); font-size: 13px; }
+
+.settings-actions { display: flex; gap: 12px; margin: 8px 0 18px; }
+.settings-actions button {
+  border-radius: 8px; padding: 11px 22px; font-size: 15px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+}
+.settings-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.settings-actions button:disabled { opacity: 0.6; cursor: default; }
+.flash.persist { animation: none; }
+
 @media (max-width: 760px) {
   .grid { grid-template-columns: repeat(2, 1fr); }
   .result-breakdown { grid-template-columns: 1fr; }

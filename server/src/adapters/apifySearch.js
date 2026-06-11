@@ -6,7 +6,7 @@
 // listing with its `source`. Per-site results are cached in SQLite so repeated
 // searches don't re-pay Apify.
 
-import { apifyConfig } from '../config.js';
+import { getApifyConfig } from '../config.js';
 import { runActor } from './apifyClient.js';
 import { getCached, setCached } from '../db.js';
 import { matchesFilters } from './normalize.js';
@@ -33,6 +33,7 @@ function cacheKey(siteKey, filters) {
 }
 
 async function searchSite(site, filters, referenceYear, now) {
+  const apifyConfig = getApifyConfig();
   const siteCfg = apifyConfig.siteConfig(site.key);
   const key = cacheKey(site.key, filters);
 
@@ -58,8 +59,8 @@ export async function searchListingsApify(filters = {}, opts = {}) {
   const now = opts.now ?? Date.now();
   const referenceYear = filters.referenceYear ?? new Date(now).getFullYear();
 
-  const enabled = apifyConfig.sites
-    .map((k) => SITES[k])
+  const enabled = getApifyConfig()
+    .sites.map((k) => SITES[k])
     .filter(Boolean);
 
   // One slow/blocked site shouldn't sink the whole search — collect what works.

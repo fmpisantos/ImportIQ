@@ -7,7 +7,7 @@
 //
 // Both expose the same `getComparison(listing)` shape.
 
-import { isOfficial, PT_CACHE_TTL_MS } from '../config.js';
+import { isOfficial, getPtCacheTtlMs } from '../config.js';
 import { getComparisonOfficial } from './ptMarketClient.js';
 import { getCached, setCached } from '../db.js';
 
@@ -65,11 +65,11 @@ export async function getComparisonMock(listing) {
  *                     source: string, criteria: object }>}
  */
 export async function getComparison(listing, opts = {}) {
-  if (!isOfficial) return getComparisonMock(listing);
+  if (!isOfficial()) return getComparisonMock(listing);
 
   const now = opts.now ?? Date.now();
   const key = cacheKey(listing);
-  const cached = getCached('pt_market_cache', key, PT_CACHE_TTL_MS, now);
+  const cached = getCached('pt_market_cache', key, getPtCacheTtlMs(), now);
   if (cached) return cached;
 
   const comparison = await getComparisonOfficial(listing);

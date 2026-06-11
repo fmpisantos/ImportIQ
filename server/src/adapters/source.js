@@ -7,7 +7,7 @@
 //
 // Selected by DATA_SOURCE (see config.js).
 
-import { DATA_SOURCE } from '../config.js';
+import { getDataSource } from '../config.js';
 import {
   searchListings as searchMobiledeOrMock,
   listBrandsAndModels as listMobiledeBrands,
@@ -16,11 +16,11 @@ import { searchListingsApify } from './apifySearch.js';
 import { POPULAR_BRANDS } from './brands.js';
 
 export async function searchListings(filters = {}, opts = {}) {
-  if (DATA_SOURCE === 'apify') return searchListingsApify(filters, opts);
+  if (getDataSource() === 'apify') return searchListingsApify(filters, opts);
   return searchMobiledeOrMock(filters, opts); // handles both mock and official
 }
 
 export async function listBrandsAndModels(opts = {}) {
-  if (DATA_SOURCE === 'apify') return POPULAR_BRANDS;
+  if (getDataSource() === 'apify') return POPULAR_BRANDS;
   return listMobiledeBrands(opts);
 }

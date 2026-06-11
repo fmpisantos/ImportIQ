@@ -105,6 +105,19 @@ export function getActiveSettings() {
 }
 
 /**
+ * Runtime settings (data source + credentials) edited from the Settings UI live
+ * under `runtime.*` keys in active_settings. Returns them as a flat object with
+ * the `runtime.` prefix stripped, e.g. { data_source: 'apify', apify_token: '…' }.
+ * Consumed by config.js to override env/defaults without a restart.
+ */
+export function getRuntimeSettings() {
+  const rows = getDb()
+    .prepare("SELECT key, value FROM active_settings WHERE key LIKE 'runtime.%'")
+    .all();
+  return Object.fromEntries(rows.map((r) => [r.key.slice('runtime.'.length), r.value]));
+}
+
+/**
  * Build the view the calculator consumes: rows keyed by `key`, plus the active
  * transport method. Cached by callers for the duration of a bot run.
  */

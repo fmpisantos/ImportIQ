@@ -3,8 +3,9 @@ import 'dotenv/config'; // load .env before anything reads process.env
 import express from 'express';
 import cors from 'cors';
 import { getDb } from './db.js';
-import { DATA_SOURCE } from './config.js';
+import { getDataSource } from './config.js';
 import configRouter from './routes/config.js';
+import settingsRouter from './routes/settings.js';
 import searchRouter from './routes/search.js';
 import exportRouter from './routes/export.js';
 
@@ -16,6 +17,7 @@ app.use(express.json({ limit: '5mb' }));
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.use('/api/config', configRouter);
+app.use('/api/settings', settingsRouter);
 app.use('/api', searchRouter); // exposes /api/search and /api/brands
 app.use('/api/export', exportRouter);
 
@@ -30,5 +32,5 @@ app.use((err, req, res, next) => {
 getDb();
 
 app.listen(PORT, () => {
-  console.log(`ImportIQ API listening on http://localhost:${PORT} (data source: ${DATA_SOURCE})`);
+  console.log(`ImportIQ API listening on http://localhost:${PORT} (data source: ${getDataSource()})`);
 });

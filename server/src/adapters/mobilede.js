@@ -186,7 +186,7 @@ function listBrandsAndModelsMock() {
  * @returns {Promise<object[]>} normalised listings
  */
 export async function searchListings(filters = {}, opts = {}) {
-  if (!isOfficial) return searchListingsMock(filters);
+  if (!isOfficial()) return searchListingsMock(filters);
   const now = opts.now ?? Date.now();
   const refdataTree = await getRefdataTree(now);
   return searchListingsOfficial(filters, {
@@ -202,7 +202,7 @@ export async function searchListings(filters = {}, opts = {}) {
  * @returns {Promise<Record<string, string[]>>}
  */
 export async function listBrandsAndModels(opts = {}) {
-  if (!isOfficial) return listBrandsAndModelsMock();
+  if (!isOfficial()) return listBrandsAndModelsMock();
   const now = opts.now ?? Date.now();
   const tree = await getRefdataTree(now);
   return Object.fromEntries(

@@ -20,6 +20,9 @@ export const api = {
   getConfig: () => http('GET', '/api/config'),
   updateConfig: (key, patch) => http('PUT', `/api/config/${key}`, patch),
   setActiveTransport: (method) => http('POST', '/api/config/active', { method }),
+  getSettings: () => http('GET', '/api/settings'),
+  updateSettings: (updates, clear = []) => http('PUT', '/api/settings', { updates, clear }),
+  testConnection: () => http('POST', '/api/settings/test'),
 };
 
 // Export helpers POST results back and trigger a file download.
