@@ -27,17 +27,27 @@ export function comparisonCriteria(listing) {
  * Reduce a set of comparable PT listings to the comparison object the rest of
  * the app expects. Pure — unit-testable.
  *
- * @param {Array<{priceEur:number}>} listings
+ * Every listing that carries a `url` (and optionally `title`) is surfaced in
+ * `sampleListings` so the UI can show each PT comparable behind the average.
+ *
+ * @param {Array<{priceEur:number, url?:string, title?:string}>} listings
  * @param {string} source
  * @param {object} criteria
- * @returns {{ avgPriceEur: number|null, sampleSize: number, source: string, criteria: object }}
+ * @returns {{ avgPriceEur: number|null, sampleSize: number, source: string,
+ *             criteria: object,
+ *             sampleListings: Array<{priceEur:number, url:string, title?:string}> }}
  */
 export function summarise(listings, source, criteria) {
-  const prices = listings
-    .map((l) => Number(l.priceEur ?? l.price))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  const avg = prices.length ? round2(prices.reduce((a, b) => a + b, 0) / prices.length) : null;
-  return { avgPriceEur: avg, sampleSize: prices.length, source, criteria };
+  const valid = listings
+    .map((l) => ({ ...l, priceEur: Number(l.priceEur ?? l.price) }))
+    .filter((l) => Number.isFinite(l.priceEur) && l.priceEur > 0);
+  const avg = valid.length
+    ? round2(valid.reduce((a, l) => a + l.priceEur, 0) / valid.length)
+    : null;
+  const sampleListings = valid
+    .filter((l) => typeof l.url === 'string' && l.url)
+    .map((l) => ({ priceEur: l.priceEur, url: l.url, ...(l.title ? { title: l.title } : {}) }));
+  return { avgPriceEur: avg, sampleSize: valid.length, source, criteria, sampleListings };
 }
 
 async function httpGetJson(url, headers) {
@@ -66,7 +76,11 @@ async function fetchOlx(listing, criteria) {
     Accept: 'application/json',
   });
   const items = payload?.data ?? payload?.listings ?? payload?.items ?? [];
-  return items.map((it) => ({ priceEur: it.price?.value ?? it.price?.amount ?? it.price }));
+  return items.map((it) => ({
+    priceEur: it.price?.value ?? it.price?.amount ?? it.price,
+    url: it.url ?? it.link,
+    title: it.title,
+  }));
 }
 
 // --- Standvirtual ----------------------------------------------------------
@@ -86,7 +100,11 @@ async function fetchStandvirtual(listing, criteria) {
     'User-Agent': 'ImportIQ/0.1',
   });
   const items = payload?.adverts ?? payload?.results ?? payload?.data ?? [];
-  return items.map((it) => ({ priceEur: it.price?.amount ?? it.price?.value ?? it.price }));
+  return items.map((it) => ({
+    priceEur: it.price?.amount ?? it.price?.value ?? it.price,
+    url: it.url ?? it.link,
+    title: it.title,
+  }));
 }
 
 /**

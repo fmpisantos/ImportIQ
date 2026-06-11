@@ -29,4 +29,35 @@ test('summarise returns null average for an empty set', () => {
   const out = summarise([], 'x', {});
   assert.equal(out.avgPriceEur, null);
   assert.equal(out.sampleSize, 0);
+  assert.deepEqual(out.sampleListings, []);
+});
+
+test('summarise surfaces every priced listing with a URL as sampleListings', () => {
+  const listings = Array.from({ length: 8 }, (_, i) => ({
+    priceEur: 20000 + i * 1000,
+    url: `https://www.olx.pt/d/anuncio/car-${i}.html`,
+    title: `Car ${i}`,
+  }));
+  const out = summarise(listings, 'olx.pt', {});
+  assert.equal(out.sampleListings.length, 8);
+  assert.deepEqual(out.sampleListings[0], {
+    priceEur: 20000,
+    url: 'https://www.olx.pt/d/anuncio/car-0.html',
+    title: 'Car 0',
+  });
+});
+
+test('summarise excludes unpriced or URL-less listings from sampleListings', () => {
+  const out = summarise(
+    [
+      { priceEur: 0, url: 'https://example.pt/zero' },
+      { priceEur: 21000 }, // counts toward the average, but has no link
+      { priceEur: 23000, url: 'https://example.pt/ok' },
+    ],
+    'olx.pt',
+    {}
+  );
+  assert.equal(out.avgPriceEur, 22000);
+  assert.equal(out.sampleSize, 2);
+  assert.deepEqual(out.sampleListings, [{ priceEur: 23000, url: 'https://example.pt/ok' }]);
 });

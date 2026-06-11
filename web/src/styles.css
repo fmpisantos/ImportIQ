@@ -112,6 +112,44 @@ select:disabled { opacity: 0.5; }
 .ext { color: var(--accent); font-size: 13px; text-decoration: none; display: inline-block; margin-top: 8px; }
 .mini { color: var(--accent); font-size: 11px; margin-left: 6px; }
 
+.price-link { color: var(--accent); text-decoration: none; }
+.price-link strong { color: var(--accent); }
+.price-link:hover { text-decoration: underline; }
+.pt-avg-btn { background: none; border: none; padding: 0; font: inherit; cursor: pointer; }
+.linkish { background: none; border: none; padding: 0; font-size: 13px; cursor: pointer; }
+.linkish:hover { text-decoration: underline; }
+
+/* ---- PT market modal ---- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 20px; width: min(560px, calc(100vw - 32px));
+  max-height: 80vh; overflow-y: auto;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modal-head h3 { margin: 0; font-size: 16px; }
+.modal-close {
+  background: none; border: none; color: var(--muted); font-size: 22px;
+  line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.modal-close:hover { color: var(--text); }
+.modal-listings { list-style: none; padding: 0; margin: 12px 0; font-size: 13px; }
+.modal-listings li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 6px 0; border-bottom: 1px solid var(--border);
+}
+.modal-listings li:last-child { border-bottom: none; }
+.modal-listings a {
+  color: var(--accent); text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.modal-listings a:hover { text-decoration: underline; }
+.modal-price { color: var(--text); font-weight: 600; white-space: nowrap; }
+
 /* ---- Config ---- */
 .config-table { width: 100%; border-collapse: collapse; }
 .config-table th { text-align: left; font-size: 12px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -179,7 +217,40 @@ select:disabled { opacity: 0.5; }
 .settings-actions button:disabled { opacity: 0.6; cursor: default; }
 .flash.persist { animation: none; }
 
+/* ---- Mobile ---- */
 @media (max-width: 760px) {
+  .app { padding: 0 12px 48px; }
+
+  .topbar { flex-wrap: wrap; gap: 4px 16px; padding: 14px 0; margin-bottom: 16px; }
+  .topbar nav { display: flex; gap: 18px; width: 100%; }
+  .topbar nav a { margin-left: 0; padding: 6px 0; }
+
+  .card { padding: 16px 14px; }
+
   .grid { grid-template-columns: repeat(2, 1fr); }
-  .result-breakdown { grid-template-columns: 1fr; }
+  /* 16px stops iOS Safari from auto-zooming focused fields */
+  select, input { font-size: 16px; }
+  .run { width: 100%; }
+
+  .results-toolbar { flex-wrap: wrap; gap: 8px; }
+
+  .result-head { flex-wrap: wrap; gap: 10px 12px; padding: 12px; }
+  .thumb { width: 92px; height: 58px; }
+  .result-main { flex: 1 1 0; min-width: 0; }
+  .result-right {
+    flex-direction: row; width: 100%;
+    align-items: center; justify-content: space-between;
+  }
+  .expand { padding: 8px 14px; }
+  .result-prices { gap: 10px 14px; }
+
+  .result-breakdown { grid-template-columns: 1fr; gap: 16px; padding: 14px 12px; }
+
+  .config-table { display: block; overflow-x: auto; }
+}
+
+@media (max-width: 420px) {
+  .brand { font-size: 19px; }
+  .result-title { font-size: 15px; }
+  .result-prices { font-size: 12px; }
 }

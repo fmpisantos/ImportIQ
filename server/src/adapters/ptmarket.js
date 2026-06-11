@@ -16,11 +16,18 @@ import { getCached, setCached } from '../db.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+// Bump when the comparison payload shape changes — cached entries written with
+// an older shape (e.g. before sampleListings carried every comparable) must
+// not be served.
+const CACHE_VERSION = 3;
+
 // Cache key bucketed to match the comparison window (year, 20k-km bracket) so
 // equivalent cars share a cached average (PLAN.md §5).
 function cacheKey(listing) {
   const mileageBucket = Math.round((listing.mileageKm ?? 0) / 20000);
-  return [listing.brand, listing.model, listing.year, mileageBucket].join('|').toLowerCase();
+  return [`v${CACHE_VERSION}`, listing.brand, listing.model, listing.year, mileageBucket]
+    .join('|')
+    .toLowerCase();
 }
 
 // Deterministic pseudo "PT premium over German price" so the same listing
@@ -43,6 +50,7 @@ export async function getComparisonMock(listing) {
   return {
     avgPriceEur: avg,
     sampleSize,
+    sampleListings: [], // synthesised average — there are no real listings to link
     source: 'mock:standvirtual',
     criteria: {
       brand: listing.brand,

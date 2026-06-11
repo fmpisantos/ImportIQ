@@ -72,6 +72,33 @@ function priceOf(item) {
   return param?.value?.value ?? null;
 }
 
+const WEB_BASE = 'https://www.olx.pt';
+const CARS_PATH = 'carros-motos-e-barcos/carros'; // root path when the brand slug is unknown
+
+/**
+ * Human-facing OLX.pt search URL equivalent to the API query — so users can
+ * open the exact search behind the comparison. Pure — unit-testable.
+ *
+ * Brand slugs can't be derived from brand names (e.g. category 777 is
+ * `volkswagen-vw`), so the caller passes the category path reported by the API
+ * response itself (`metadata.adverts.config.targeting.cat_l*_path`).
+ *
+ * @param {object} criteria  comparison window (yearRange, mileageRangeKm)
+ * @param {string} [model]   free-text model query
+ * @param {string} [brandSlug]  brand category path segment from the API response
+ */
+export function buildSearchUrl(criteria, model, brandSlug) {
+  const path = brandSlug ? `${CARS_PATH}/${brandSlug}` : CARS_PATH;
+  const query = model ? `/q-${encodeURIComponent(String(model))}` : '';
+  const params = new URLSearchParams({
+    'search[filter_float_year:from]': String(criteria.yearRange[0]),
+    'search[filter_float_year:to]': String(criteria.yearRange[1]),
+    'search[filter_float_quilometros:from]': String(criteria.mileageRangeKm[0]),
+    'search[filter_float_quilometros:to]': String(criteria.mileageRangeKm[1]),
+  });
+  return `${WEB_BASE}/${path}${query}/?${params}`;
+}
+
 /**
  * Fetch comparable PT listings for one normalised listing and reduce them to
  * the comparison object (same shape as the official/mock providers).
@@ -99,6 +126,15 @@ export async function getComparisonDirect(listing, opts = {}) {
     throw new Error(`OLX.pt request failed (${res.status}): ${body.slice(0, 300)}`);
   }
   const payload = await res.json();
-  const items = (payload?.data ?? []).map((it) => ({ priceEur: priceOf(it) }));
-  return summarise(items, 'olx.pt', criteria);
+  const items = (payload?.data ?? []).map((it) => ({
+    priceEur: priceOf(it),
+    url: it.url,
+    title: it.title,
+  }));
+  // The deepest category path in the response is the brand slug (when a brand
+  // category was queried) — authoritative, unlike guessing from the brand name.
+  const targeting = payload?.metadata?.adverts?.config?.targeting;
+  const brandSlug = targeting?.cat_l2_path || undefined;
+  const searchUrl = buildSearchUrl(criteria, listing.model, brandSlug);
+  return { ...summarise(items, 'olx.pt', criteria), searchUrl };
 }

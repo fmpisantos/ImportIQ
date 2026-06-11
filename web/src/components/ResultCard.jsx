@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { eur } from '../api.js';
 
@@ -23,10 +23,52 @@ function SavingBadge({ result }) {
   );
 }
 
+function PtMarketModal({ comparison, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>PT market average — {eur(comparison.avgPriceEur)}</h3>
+          <button className="modal-close" type="button" onClick={onClose}>×</button>
+        </div>
+        <p className="muted">
+          Based on {comparison.sampleSize} listings ({comparison.source}).
+        </p>
+        {comparison.searchUrl && (
+          <a href={comparison.searchUrl} target="_blank" rel="noreferrer" className="ext">
+            Open this search on OLX.pt ↗
+          </a>
+        )}
+        {comparison.sampleListings?.length > 0 && (
+          <ul className="modal-listings">
+            {comparison.sampleListings.map((s) => (
+              <li key={s.url}>
+                <a href={s.url} target="_blank" rel="noreferrer">{s.title ?? 'Listing'} ↗</a>
+                <span className="modal-price">{eur(s.priceEur)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ResultCard({ result }) {
   const [open, setOpen] = useState(false);
+  const [ptModalOpen, setPtModalOpen] = useState(false);
   const { listing, breakdown } = result;
   const isv = breakdown.isv;
+  const comparison = result.comparison;
+  const hasPtDetails =
+    comparison != null &&
+    (comparison.sampleListings?.length > 0 || comparison.searchUrl != null);
 
   return (
     <div className={`result card ${result.incomplete ? 'is-incomplete' : ''}`}>
@@ -44,11 +86,44 @@ export default function ResultCard({ result }) {
             {listing.fuelType ?? 'n/a'} · {listing.transmission ?? 'n/a'}
           </div>
           <div className="result-prices">
-            <span>German: <strong>{eur(listing.priceEur)}</strong></span>
+            <span>
+              German:{' '}
+              {listing.url ? (
+                <a
+                  href={listing.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="price-link"
+                  title={`Open the listing on ${SOURCE_LABELS[listing.source] ?? listing.source}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <strong>{eur(listing.priceEur)}</strong> ↗
+                </a>
+              ) : (
+                <strong>{eur(listing.priceEur)}</strong>
+              )}
+            </span>
             <span className="landed">
               Landed: <strong>{result.incomplete ? '—' : eur(result.totalLandedCostEur)}</strong>
             </span>
-            <span>PT avg: <strong>{eur(result.comparison?.avgPriceEur)}</strong></span>
+            <span>
+              PT avg:{' '}
+              {hasPtDetails ? (
+                <button
+                  type="button"
+                  className="price-link pt-avg-btn"
+                  title="See the PT listings behind this average"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPtModalOpen(true);
+                  }}
+                >
+                  <strong>{eur(comparison.avgPriceEur)}</strong> ▾
+                </button>
+              ) : (
+                <strong>{eur(comparison?.avgPriceEur)}</strong>
+              )}
+            </span>
           </div>
         </div>
         <div className="result-right">
@@ -121,10 +196,15 @@ export default function ResultCard({ result }) {
           <div className="bd-col">
             <h4>Comparison & ownership</h4>
             <ul>
-              <li>PT market avg: {eur(result.comparison?.avgPriceEur)}</li>
-              <li className="muted">based on {result.comparison?.sampleSize ?? 0} listings ({result.comparison?.source})</li>
+              <li>PT market avg: {eur(comparison?.avgPriceEur)}</li>
+              <li className="muted">based on {comparison?.sampleSize ?? 0} listings ({comparison?.source})</li>
               <li>Annual IUC (est.): {eur(breakdown.iuc.annualIucEur)}/yr</li>
             </ul>
+            {hasPtDetails && (
+              <button type="button" className="ext linkish" onClick={() => setPtModalOpen(true)}>
+                View the PT listings behind this average ▾
+              </button>
+            )}
             {listing.url && (
               <a href={listing.url} target="_blank" rel="noreferrer" className="ext">
                 View on {SOURCE_LABELS[listing.source] ?? 'source'} ↗
@@ -132,6 +212,10 @@ export default function ResultCard({ result }) {
             )}
           </div>
         </div>
+      )}
+
+      {ptModalOpen && (
+        <PtMarketModal comparison={comparison} onClose={() => setPtModalOpen(false)} />
       )}
     </div>
   );
