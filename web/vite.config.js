@@ -10,7 +10,13 @@ export default defineConfig({
   base: '/importiq/',
   plugins: [react()],
   server: {
+    // Bind on IPv4 explicitly — the Caddy proxy in ../routing targets
+    // 127.0.0.1:5173, and Vite's default `localhost` bind can land on ::1 only.
+    host: '127.0.0.1',
     port: 5173,
+    // Requests arrive via Tailscale → Caddy with the tailnet hostname in the
+    // Host header; Vite blocks non-localhost hosts unless listed here.
+    allowedHosts: ['raspberrypi', '.ts.net'],
     proxy: {
       '/importiq/api': 'http://localhost:3001',
     },
