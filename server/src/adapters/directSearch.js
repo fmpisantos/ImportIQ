@@ -121,10 +121,15 @@ async function searchAs24Cached(filters, cfg, referenceYear, now) {
 }
 
 /**
+ * Fetch the full pool of matching listings (search cards), deduped and tagged
+ * by source — but NOT yet enriched with detail-page CO₂. Enrichment (a detail
+ * fetch per listing) and the PT comparison are the expensive steps, so the route
+ * runs them only for the page it's about to show (see enrichListingsDirect).
+ *
  * @param {object} filters  see PLAN.md §3
  * @param {object} [opts]   { now } epoch ms (testability)
- * @returns {Promise<object[]>} normalised, filtered, deduped listings tagged
- *   with source (autoscout24, plus mobilede when a key is saved)
+ * @returns {Promise<object[]>} normalised, filtered, deduped pool tagged with
+ *   source (autoscout24, plus mobilede when a key is saved)
  */
 export async function searchListingsDirect(filters = {}, opts = {}) {
   const now = opts.now ?? Date.now();
@@ -148,10 +153,23 @@ export async function searchListingsDirect(filters = {}, opts = {}) {
     throw new Error(`All direct sources failed. ${errors.join('; ')}`);
   }
 
-  const listings = dedupeListings([
+  return dedupeListings([
     ...(as24.status === 'fulfilled' ? as24.value : []),
     ...(mobilede.status === 'fulfilled' ? mobilede.value : []),
   ]);
+}
 
-  return enrichMissingCo2(listings, cfg, now);
+/**
+ * Fill in detail-page CO₂ (and exact kW/displacement) for a *subset* of
+ * listings — called by the route on just the page being shown, so detail
+ * fetches scale with what the user actually views, not the whole pool. Only
+ * AutoScout24 listings are enrichable; everything else passes through. Each
+ * detail is cached 7 days (specs never change).
+ *
+ * @param {object[]} listings  the page slice to enrich
+ * @param {object} [opts]      { now } epoch ms (testability)
+ */
+export async function enrichListingsDirect(listings, opts = {}) {
+  const now = opts.now ?? Date.now();
+  return enrichMissingCo2(listings, getDirectConfig(), now);
 }

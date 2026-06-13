@@ -21,11 +21,21 @@
 //   3. reject price outliers (IQR) before averaging.
 
 import {
-  summarise,
   comparisonCriteria,
-  rejectPriceOutliers,
+  comparableMatches,
+  finalizeComparison,
 } from '../ptMarketClient.js';
-import { canonicalFuel, canonicalTransmission } from '../normalize.js';
+import {
+  canonicalFuel,
+  canonicalTransmission,
+  intFrom,
+  leadingInt,
+  normalizeModelKey,
+} from '../normalize.js';
+
+// normalizeModelKey now lives in the shared normalize module; re-export it here
+// so existing importers (and tests) of this adapter keep working.
+export { normalizeModelKey };
 
 const BASE_URL = 'https://www.olx.pt/api/v1/offers/';
 const CARS_CATEGORY = 378; // "Carros" — parent of all brand categories
@@ -90,19 +100,9 @@ const OLX_FUEL_ENUM = {
   Electric: 'electrico',
 };
 
-const norm = (s) => String(s ?? '').trim().toLowerCase();
-
-/**
- * Strip a trailing fuel/trim suffix from a numeric model code so the free-text
- * query matches the model family rather than one variant: "320d" → "320",
- * "116i" → "116", "118d" → "118". Word/letter-led models are left untouched
- * ("Golf", "A4", "Série 3"). The post-filter then narrows by fuel. Pure.
- */
-export function normalizeModelKey(model) {
-  const s = String(model ?? '').trim();
-  const m = s.match(/^(\d{2,4})\s*[a-z]{1,3}$/i);
-  return m ? m[1] : s;
-}
+// cv (metric hp, what OLX reports) → kW, so engine power compares like-for-like
+// against the German listing's kW. 1 cv = 0.7355 kW.
+const cvToKw = (cv) => (cv != null ? Math.round(cv * 0.7355) : null);
 
 function priceOf(item) {
   const param = (item.params ?? []).find((p) => p.key === 'price');
@@ -117,7 +117,12 @@ function paramOf(item, key) {
   return v;
 }
 
-/** Reduce one OLX offer to the comparable shape (price/link + filterable specs). */
+/**
+ * Reduce one OLX offer to the comparable shape: price/link plus the structured
+ * specs the shared matcher (ptMarketClient.js#comparableMatches) and the
+ * mileage regression need — model, fuel, transmission, mileage, year, engine
+ * power (→ kW) and displacement. Missing fields stay null (matcher-tolerant).
+ */
 function extractComparable(item) {
   return {
     priceEur: priceOf(item),
@@ -126,30 +131,11 @@ function extractComparable(item) {
     model: paramOf(item, 'modelo'),
     fuel: canonicalFuel(paramOf(item, 'combustivel')),
     transmission: canonicalTransmission(paramOf(item, 'gearbox')),
+    mileageKm: intFrom(paramOf(item, 'quilometros')),
+    year: intFrom(paramOf(item, 'year')),
+    powerKw: cvToKw(leadingInt(paramOf(item, 'engine_power'))),
+    displacementCm3: leadingInt(paramOf(item, 'engine_capacity')),
   };
-}
-
-/**
- * Defensive post-filter: does this OLX comparable actually match the listing on
- * model, fuel and transmission? A comparable missing one of those fields is not
- * dropped for it (mirrors normalize.js#matchesFilters). Model matching is
- * lenient — the listing's name and its stripped family key are both tried, and
- * either containing the other counts ("320d" listing ↔ OLX "320").
- */
-function comparableMatches(c, listing) {
-  if (listing.model && c.model) {
-    const cm = norm(c.model);
-    const candidates = [norm(listing.model), norm(normalizeModelKey(listing.model))];
-    if (!candidates.some((x) => x && (cm.includes(x) || x.includes(cm)))) return false;
-  }
-  if (listing.fuelType && c.fuel && norm(c.fuel) !== norm(listing.fuelType)) return false;
-  if (
-    listing.transmission &&
-    c.transmission &&
-    norm(c.transmission) !== norm(listing.transmission)
-  )
-    return false;
-  return true;
 }
 
 const WEB_BASE = 'https://www.olx.pt';
@@ -181,58 +167,86 @@ export function buildSearchUrl(criteria, model, brandSlug, fuelEnum) {
   return `${WEB_BASE}/${path}${query}/?${params}`;
 }
 
+// Up to two pages of 50 — enough to make popular models a real sample without
+// hammering OLX. The defensive post-filter + IQR trim run over the union.
+const MAX_COMPARABLES = 100;
+const PAGE_SIZE = 50;
+
 /**
- * Fetch comparable PT listings for one normalised listing and reduce them to
- * the comparison object (same shape as the official/mock providers).
+ * Fetch matched OLX comparables for one listing — the raw building block the
+ * multi-source orchestrator merges. Paginates via `offset`, post-filters every
+ * offer through the shared `comparableMatches`, and returns the matched
+ * comparables (NOT yet IQR-trimmed/averaged) plus the human search URL.
  *
  * @param {object} listing  normalised listing (brand/model/year/mileageKm)
- * @param {object} [opts]   { fetchImpl, limit }
+ * @param {object} [opts]   { fetchImpl, pageSize, maxComparables }
+ * @returns {Promise<{ items: object[], searchUrl: string, criteria: object,
+ *                     source: 'olx.pt' }>}
  */
-export async function getComparisonDirect(listing, opts = {}) {
-  const { fetchImpl = fetch, limit = 50 } = opts;
+export async function fetchComparables(listing, opts = {}) {
+  const { fetchImpl = fetch, pageSize = PAGE_SIZE, maxComparables = MAX_COMPARABLES } = opts;
   const criteria = comparisonCriteria(listing);
   const modelQuery = listing.model ? normalizeModelKey(listing.model) : undefined;
   const fuelEnum = OLX_FUEL_ENUM[listing.fuelType];
 
-  const params = new URLSearchParams({
-    category_id: String(brandCategoryId(listing.brand)),
-    limit: String(limit),
-    'filter_float_year:from': String(criteria.yearRange[0]),
-    'filter_float_year:to': String(criteria.yearRange[1]),
-    'filter_float_quilometros:from': String(criteria.mileageRangeKm[0]),
-    'filter_float_quilometros:to': String(criteria.mileageRangeKm[1]),
-  });
-  if (modelQuery) params.set('query', modelQuery);
-  if (fuelEnum) params.set('filter_enum_combustivel[0]', fuelEnum);
+  const raw = [];
+  let brandSlug;
+  const pages = Math.max(1, Math.ceil(maxComparables / pageSize));
+  for (let page = 0; page < pages; page++) {
+    const params = new URLSearchParams({
+      category_id: String(brandCategoryId(listing.brand)),
+      limit: String(pageSize),
+      offset: String(page * pageSize),
+      'filter_float_year:from': String(criteria.yearRange[0]),
+      'filter_float_year:to': String(criteria.yearRange[1]),
+      'filter_float_quilometros:from': String(criteria.mileageRangeKm[0]),
+      'filter_float_quilometros:to': String(criteria.mileageRangeKm[1]),
+    });
+    if (modelQuery) params.set('query', modelQuery);
+    if (fuelEnum) params.set('filter_enum_combustivel[0]', fuelEnum);
 
-  const res = await fetchImpl(`${BASE_URL}?${params}`, { headers: HEADERS });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`OLX.pt request failed (${res.status}): ${body.slice(0, 300)}`);
+    let payload;
+    try {
+      const res = await fetchImpl(`${BASE_URL}?${params}`, { headers: HEADERS });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`OLX.pt request failed (${res.status}): ${body.slice(0, 300)}`);
+      }
+      payload = await res.json();
+    } catch (err) {
+      if (raw.length) break; // a later page failing shouldn't drop earlier results
+      throw err;
+    }
+    const batch = payload?.data ?? [];
+    raw.push(...batch);
+    if (brandSlug === undefined) {
+      // The deepest category path in the response is the brand slug (when a
+      // brand category was queried) — authoritative, unlike guessing from name.
+      brandSlug = payload?.metadata?.adverts?.config?.targeting?.cat_l2_path || undefined;
+    }
+    if (batch.length < pageSize) break; // last page
   }
-  const payload = await res.json();
-  const comparables = (payload?.data ?? [])
-    .map(extractComparable)
-    .filter((c) => comparableMatches(c, listing));
-  const items = rejectPriceOutliers(comparables);
 
-  // The deepest category path in the response is the brand slug (when a brand
-  // category was queried) — authoritative, unlike guessing from the brand name.
-  const targeting = payload?.metadata?.adverts?.config?.targeting;
-  const brandSlug = targeting?.cat_l2_path || undefined;
+  const items = raw.map(extractComparable).filter((c) => comparableMatches(c, listing));
   const searchUrl = buildSearchUrl(criteria, modelQuery, brandSlug, fuelEnum);
-  const summary = summarise(items, 'olx.pt', criteria);
+  return { items, searchUrl, criteria, source: 'olx.pt' };
+}
 
+/**
+ * OLX-only PT comparison for one listing (same shape as the official/mock
+ * providers). Kept for the single-source path and the orchestrator's per-source
+ * breakdown; the multi-source combiner (./ptComparison.js) reuses
+ * `fetchComparables` directly.
+ *
+ * @param {object} listing  normalised listing (brand/model/year/mileageKm)
+ * @param {object} [opts]   { fetchImpl, pageSize, maxComparables }
+ */
+export async function getComparisonDirect(listing, opts = {}) {
+  const { items, searchUrl, criteria } = await fetchComparables(listing, opts);
+  const final = finalizeComparison({ items, source: 'olx.pt', criteria, listing });
   return {
-    ...summary,
+    ...final,
     searchUrl,
-    // The criteria the comparison was actually narrowed on, for the UI popover.
-    matchedCriteria: {
-      model: listing.model ?? null,
-      fuelType: listing.fuelType ?? null,
-      transmission: listing.transmission ?? null,
-    },
-    // Too few comparables to trust the average — surface a caveat (PLAN.md §5).
-    lowConfidence: summary.sampleSize < 5,
+    sources: [{ source: 'olx.pt', sampleSize: final.sampleSize, searchUrl }],
   };
 }

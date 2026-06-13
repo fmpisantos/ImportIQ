@@ -66,6 +66,17 @@ export const SEED_COST_CONFIG = [
     enabled: 0,
     notes: 'Optional. Enable and set your dispatcher quote if you use one.',
   },
+
+  // --- Other / resale assumptions ---
+  {
+    key: 'resale.asking_to_sale_haircut_pct',
+    label: 'Resale haircut (asking → sale, %)',
+    category: 'other',
+    amount_eur: 0,
+    enabled: 0,
+    notes:
+      'How far below PT asking you actually sell. Off by default; enable and set e.g. 5–10 to see the expected resale margin instead of just the saving vs asking.',
+  },
 ];
 
 export const SEED_ACTIVE_SETTINGS = [

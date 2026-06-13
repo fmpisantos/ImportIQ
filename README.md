@@ -18,8 +18,9 @@ Settings page):
 - **`mock`** (default) — deterministic sample data, no credentials needed.
 - **`direct`** — **free, keyless live data**: AutoScout24 listings scraped
   straight from its public search pages (the results JSON is embedded in the
-  HTML), and the PT market comparison from **OLX.pt's open public API**. No
-  account, no token, no cost. Recommended real-data path.
+  HTML), and the PT market comparison merged from **OLX.pt's open public API**
+  and **Standvirtual** (`__NEXT_DATA__`). No account, no token, no cost.
+  Recommended real-data path.
 - **`apify`** — live listings scraped from **mobile.de, AutoScout24 and
   AutoUncle** via [Apify](https://apify.com) Store actors. Needs an
   `APIFY_TOKEN` (pay-as-you-go). Use this when you also want mobile.de, which
@@ -103,9 +104,18 @@ Set `DATA_SOURCE=direct`. Nothing else to configure.
   `DIRECT_ENRICH_LIMIT`, cached 7 days — a listing's specs never change).
   Listings that don't publish CO₂/displacement anywhere are flagged
   **Incomplete** rather than getting a made-up ISV.
-- **PT comparison — OLX.pt**: open public JSON API (`/api/v1/offers/`), no key.
-  Brands map to OLX subcategories; year and mileage are real API filters and
-  the model is matched as free text. Also used in `apify` mode.
+- **PT comparison — OLX.pt + Standvirtual (merged)**: each listing's PT
+  benchmark is built from multiple keyless sources and combined
+  (`adapters/direct/ptComparison.js`). OLX.pt is its open public JSON API
+  (`/api/v1/offers/`, no key); Standvirtual (the dealer-heavy market leader) is
+  parsed from its server-rendered `__NEXT_DATA__`. Comparables are matched on
+  model family + fuel + transmission + **engine power/displacement**, IQR-trimmed,
+  then reduced to a robust **market value** — a mileage regression predicted at
+  the subject's km (falling back to the median, then the mean). The per-source
+  sample counts and the estimate method are surfaced in the PT-average popover.
+  `PT_SOURCES` (default `olx,standvirtual`) selects the sources; a source that
+  fails/blocks is skipped. Standvirtual's parser is best-effort pending live
+  field verification (see its adapter note). Also used in `apify` mode.
 - **mobile.de — automatic when a key is saved**: mobile.de blocks plain HTTP
   (Akamai 403), so it joins the direct search only if you save a key for it on
   the Settings page — dealer credentials (official API, free) take precedence
@@ -182,12 +192,22 @@ the UI is a follow-up.
 ## Cost model (PLAN.md §4)
 
 ```
-Total landed cost = German price + ISV + Transport + Legalisation fees
+Total landed cost = German price + ISV + VAT* + Transport + Legalisation fees
+                                        (*nearly-new imports only)
 ```
 
 - **ISV** is computed from the official OE2025/2026 tables (`engine/isvTables.js`).
+- **VAT (IVA, 23%)** is added only for a *new means of transport* — ≤6 months
+  old **or** ≤6,000 km (`engine/vat.js`). When it can't be confirmed from the
+  year alone (registered this year, month unknown) the result is flagged
+  "verify" without inventing a number, and kept out of the green deal badge.
 - **Transport** is the exact amount configured for the active method.
 - **Legalisation** is the sum of enabled, configured fee line items.
+
+The PT benchmark is the *asking* average; set an optional **resale haircut**
+(`resale.asking_to_sale_haircut_pct`, off by default) on the Config page to also
+see the expected resale margin. Implausibly-low German prices (parse errors /
+damaged listings) are flagged per same-model run median (`engine/priceSanity.js`).
 
 Every component must resolve to a real configured/computed value. If a required
 config value is missing, the result is flagged **Incomplete** rather than

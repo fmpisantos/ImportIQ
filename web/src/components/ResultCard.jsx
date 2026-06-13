@@ -8,6 +8,30 @@ const SOURCE_LABELS = {
   autouncle: 'AutoUncle',
 };
 
+const METHOD_LABELS = {
+  'mileage-regression': 'mileage-adjusted',
+  median: 'median',
+  mean: 'mean',
+};
+
+// Caveats that should keep a result out of the clean green "deal" badge: VAT on
+// a nearly-new import, or an implausibly-low German price.
+function cautionNotes(result) {
+  const notes = [];
+  const vat = result.breakdown?.vat;
+  if (vat?.applicable) {
+    notes.push(
+      `+${vat.vatRatePct}% IVA likely due (≈ ${eur(vat.vatEur)}) on this nearly-new import — ${vat.reasons.join('; ')}. Already included in the landed cost above.`
+    );
+  } else if (vat?.suspect) {
+    notes.push(
+      `IVA (23%) may be due — ${vat.reasons.join('; ')}. Not added to the total; verify before trusting the saving.`
+    );
+  }
+  if (result.germanPriceSuspicious) notes.push(...(result.germanPriceNotes ?? []));
+  return notes;
+}
+
 function SavingBadge({ result }) {
   if (result.incomplete) {
     return <span className="badge incomplete">Incomplete</span>;
@@ -40,6 +64,23 @@ function PtMarketModal({ comparison, onClose }) {
         <p className="muted">
           Based on {comparison.sampleSize} listings ({comparison.source}).
         </p>
+        {comparison.marketValueEur != null &&
+          comparison.marketValueMethod &&
+          comparison.marketValueMethod !== 'none' && (
+            <p className="muted">
+              Estimate used: <strong>{eur(comparison.marketValueEur)}</strong> (
+              {METHOD_LABELS[comparison.marketValueMethod] ?? comparison.marketValueMethod}
+              {comparison.medianPriceEur != null && `; median ${eur(comparison.medianPriceEur)}`})
+            </p>
+          )}
+        {comparison.sources?.length > 0 && (
+          <p className="muted">
+            Sources:{' '}
+            {comparison.sources
+              .map((s) => `${s.source} (${s.sampleSize}${s.error ? ', failed' : ''})`)
+              .join(' · ')}
+          </p>
+        )}
         {comparison.matchedCriteria && (
           <p className="muted">
             Matched on{' '}
@@ -87,6 +128,7 @@ export default function ResultCard({ result }) {
   const hasPtDetails =
     comparison != null &&
     (comparison.sampleListings?.length > 0 || comparison.searchUrl != null);
+  const cautions = result.incomplete ? [] : cautionNotes(result);
 
   return (
     <div className={`result card ${result.incomplete ? 'is-incomplete' : ''}`}>
@@ -125,7 +167,7 @@ export default function ResultCard({ result }) {
               Landed: <strong>{result.incomplete ? '—' : eur(result.totalLandedCostEur)}</strong>
             </span>
             <span>
-              PT avg:{' '}
+              PT asking avg:{' '}
               {hasPtDetails ? (
                 <button
                   type="button"
@@ -146,9 +188,18 @@ export default function ResultCard({ result }) {
         </div>
         <div className="result-right">
           <SavingBadge result={result} />
+          {cautions.length > 0 && <span className="badge caution">⚠ Verify</span>}
           <button className="expand" type="button">{open ? 'Hide' : 'Details'}</button>
         </div>
       </div>
+
+      {cautions.length > 0 && (
+        <div className="caution-note">
+          {cautions.map((n, i) => (
+            <div key={i}>⚠️ {n}</div>
+          ))}
+        </div>
+      )}
 
       {result.incomplete && (
         <div className="incomplete-note">
@@ -208,14 +259,34 @@ export default function ResultCard({ result }) {
                 <li key={i.key}>{i.label}: {eur(i.amountEur)}</li>
               ))}
               <li className="total">Legalisation total: <strong>{eur(breakdown.legalisation.totalEur)}</strong></li>
+              {breakdown.vat?.applicable && (
+                <li className="total">
+                  IVA ({breakdown.vat.vatRatePct}%, nearly-new): <strong>{eur(breakdown.vat.vatEur)}</strong>
+                </li>
+              )}
             </ul>
           </div>
 
           <div className="bd-col">
             <h4>Comparison & ownership</h4>
             <ul>
-              <li>PT market avg: {eur(comparison?.avgPriceEur)}</li>
+              <li>PT asking avg: {eur(comparison?.avgPriceEur)}</li>
+              {comparison?.marketValueEur != null &&
+                comparison.marketValueMethod &&
+                comparison.marketValueMethod !== 'mean' && (
+                  <li>
+                    Estimate ({METHOD_LABELS[comparison.marketValueMethod] ?? comparison.marketValueMethod}):{' '}
+                    {eur(comparison.marketValueEur)}
+                  </li>
+                )}
               <li className="muted">based on {comparison?.sampleSize ?? 0} listings ({comparison?.source})</li>
+              {result.estimatedResaleEur != null && (
+                <li>
+                  Est. resale (−{result.resaleHaircutPct}%): {eur(result.estimatedResaleEur)} →{' '}
+                  <strong>margin {eur(result.marginEur)}</strong>
+                  {result.marginPct != null && ` (${result.marginPct}%)`}
+                </li>
+              )}
               <li>Annual IUC (est.): {eur(breakdown.iuc.annualIucEur)}/yr</li>
             </ul>
             {hasPtDetails && (

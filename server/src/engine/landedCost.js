@@ -8,6 +8,7 @@
 
 import { calculateISV, normaliseFuel } from './isv.js';
 import { estimateIUC } from './iuc.js';
+import { assessVat } from './vat.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -16,9 +17,11 @@ const round2 = (n) => Math.round(n * 100) / 100;
  * @param {object} config             Result of buildConfigView() from db layer:
  *   @param {object} config.byKey       cost_config rows keyed by `key`
  *   @param {string} config.activeTransportMethod  e.g. 'transport.enclosed'
+ * @param {object} [opts]              { referenceYear, referenceMonth } — "now",
+ *   used only to sharpen the ≤6-month VAT test when the listing has a reg month
  * @returns {object} enriched result with cost breakdown + completeness flag
  */
-export function computeLandedCost(listing, config) {
+export function computeLandedCost(listing, config, opts = {}) {
   const { byKey, activeTransportMethod } = config;
   const missing = [];
 
@@ -92,12 +95,27 @@ export function computeLandedCost(listing, config) {
     fuelType: listing.fuelType,
   });
 
+  // --- VAT (IVA) on nearly-new imports (PLAN.md §10 — intra-EU correctness) ---
+  // A "new means of transport" (≤6 months or ≤6,000 km) owes 23% PT IVA on top
+  // of ISV. Added to the total only when (near-)certain; a "suspect" case warns
+  // without inventing a number (see vat.js).
+  const vat = assessVat({
+    mileageKm: listing.mileageKm,
+    ageYears: listing.ageYears,
+    firstRegYear: listing.firstRegYear,
+    firstRegMonth: listing.firstRegMonth,
+    priceEur: listing.priceEur,
+    referenceYear: opts.referenceYear,
+    referenceMonth: opts.referenceMonth,
+  });
+  const vatAdd = vat.applicable && vat.vatEur != null ? vat.vatEur : 0;
+
   const incomplete = missing.length > 0;
 
   const totalLandedCost = incomplete
     ? null
     : round2(
-        listing.priceEur + isv.isv + transport.amountEur + legalisationTotal
+        listing.priceEur + isv.isv + transport.amountEur + legalisationTotal + vatAdd
       );
 
   return {
@@ -107,6 +125,7 @@ export function computeLandedCost(listing, config) {
       isv,
       transport,
       legalisation: { items: legalisationItems, totalEur: legalisationTotal },
+      vat,
       iuc,
     },
     totalLandedCostEur: totalLandedCost,
@@ -116,14 +135,54 @@ export function computeLandedCost(listing, config) {
 }
 
 /**
- * Attach a PT-market comparison and a saving/premium verdict to a computed
- * result. Comparison values come from the PT-market adapter (PLAN.md §5).
+ * Attach a PT-market comparison and a saving/margin verdict to a computed
+ * result (PLAN.md §5). The verdict is taken against the comparison's robust
+ * `marketValueEur` (mileage-regression/median) when present, else the mean.
+ *
+ * `savingEur` is vs the PT *asking* benchmark. When a resale haircut is
+ * configured (`opts.resaleHaircutPct`), an `estimatedResaleEur` and the real
+ * `marginEur`/`marginPct` (what you'd actually clear after selling below asking)
+ * are added alongside — asking ≠ sale price.
+ *
+ * @param {object} result      computeLandedCost() output
+ * @param {object} comparison  PT-market comparison
+ * @param {object} [opts]      { resaleHaircutPct }
  */
-export function attachComparison(result, comparison) {
-  if (result.incomplete || !comparison || comparison.avgPriceEur == null) {
-    return { ...result, comparison: comparison ?? null, savingEur: null, savingPct: null };
+export function attachComparison(result, comparison, opts = {}) {
+  const ref = comparison ? comparison.marketValueEur ?? comparison.avgPriceEur : null;
+  if (result.incomplete || !comparison || ref == null) {
+    return {
+      ...result,
+      comparison: comparison ?? null,
+      savingEur: null,
+      savingPct: null,
+      marginEur: null,
+      marginPct: null,
+      estimatedResaleEur: null,
+    };
   }
-  const savingEur = round2(comparison.avgPriceEur - result.totalLandedCostEur);
-  const savingPct = round2((savingEur / comparison.avgPriceEur) * 100);
-  return { ...result, comparison, savingEur, savingPct };
+  const savingEur = round2(ref - result.totalLandedCostEur);
+  const savingPct = round2((savingEur / ref) * 100);
+
+  const haircutPct = Number(opts.resaleHaircutPct) || 0;
+  let estimatedResaleEur = null;
+  let marginEur = null;
+  let marginPct = null;
+  if (haircutPct > 0) {
+    estimatedResaleEur = round2(ref * (1 - haircutPct / 100));
+    marginEur = round2(estimatedResaleEur - result.totalLandedCostEur);
+    marginPct =
+      estimatedResaleEur > 0 ? round2((marginEur / estimatedResaleEur) * 100) : null;
+  }
+
+  return {
+    ...result,
+    comparison,
+    savingEur,
+    savingPct,
+    estimatedResaleEur,
+    marginEur,
+    marginPct,
+    resaleHaircutPct: haircutPct || null,
+  };
 }

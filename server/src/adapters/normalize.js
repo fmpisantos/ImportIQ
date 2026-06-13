@@ -26,13 +26,39 @@ export function intFrom(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Parse the FIRST number out of a spec string, stopping at the unit — so a unit
+ * that ends in a digit doesn't get glued on: "1.995 cm³" → 1995, "1995 cm3" →
+ * 1995 (NOT 19953), "116 cv" → 116. Thousands separators (., space, ') inside
+ * the leading run are stripped. Use for engine power/displacement where intFrom
+ * (which concatenates every digit in the string) would mis-read the unit. Pure.
+ */
+export function leadingInt(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : null;
+  const m = String(value).match(/\d[\d.\s']*/);
+  if (!m) return null;
+  const digits = m[0].replace(/[.\s']/g, '');
+  const n = Number(digits);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Strip diacritics so localized labels match the keyword tables — without this,
+ * PT "Automática"/"Elétrico"/"Híbrido" never matched their English/German
+ * patterns and every such comparable was wrongly dropped (the no-PT-average
+ * bug). NFD-decompose, then remove combining marks.
+ */
+const deaccent = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+
 const FUEL_KEYWORDS = [
-  // order matters: check the more specific labels first.
+  // order matters: check the more specific labels first. Patterns run against
+  // the de-accented label, so e.g. "elétrico" → "eletrico" matches `eletric`.
   ['PHEV', /plug.?in|phev|plug-in-hybrid|hybrid.?plug/i],
-  ['Electric', /electric|elektro|elettric|électr|bev|\bev\b/i],
+  ['Electric', /electric|eletric|elektro|elettric|electr|bev|\bev\b/i],
   ['Hybrid', /hybrid|hibrid|ibrid|hybride/i],
-  ['Diesel', /diesel/i],
-  ['LPG', /lpg|autogas|gpl|flüssiggas/i],
+  ['Diesel', /diesel|gasoleo/i],
+  ['LPG', /lpg|autogas|gpl|flussiggas/i],
   ['CNG', /\bcng\b|erdgas|metano|natural gas/i],
   ['Petrol', /petrol|gasoline|benzin|benzina|essence|super|gasolina/i],
 ];
@@ -40,20 +66,22 @@ const FUEL_KEYWORDS = [
 /** Map any free-text / enum fuel label onto our canonical set, else pass through. */
 export function canonicalFuel(raw) {
   if (raw == null || raw === '') return null;
-  const s = String(raw);
+  const s = deaccent(raw);
   for (const [label, re] of FUEL_KEYWORDS) {
     if (re.test(s)) return label;
   }
-  return s;
+  return String(raw);
 }
 
 /** Map any free-text gearbox label → 'Manual' | 'Automatic', else pass through. */
 export function canonicalTransmission(raw) {
   if (raw == null || raw === '') return null;
-  const s = String(raw);
+  const s = deaccent(raw); // PT "Automática" → "Automatica"
   if (/manual|schalt|manuale|manuelle|manuell/i.test(s)) return 'Manual';
-  if (/automat|dsg|tiptronic|s.?tronic|pdk|cvt/i.test(s)) return 'Automatic';
-  return s;
+  // `autom` (not `automat`) so localized labels also match — FR "Automatique",
+  // IT/ES "Automatico", DE "Automatik", PT "Automatica" (de-accented).
+  if (/autom|dsg|tiptronic|s.?tronic|pdk|cvt|edc|amt/i.test(s)) return 'Automatic';
+  return String(raw);
 }
 
 /**
@@ -76,6 +104,18 @@ export function parseYear(value) {
 export function inferEmissionStandard(firstRegYear) {
   const standard = firstRegYear != null && firstRegYear >= 2019 ? 'WLTP' : 'NEDC';
   return { standard, inferred: true };
+}
+
+/**
+ * Strip a trailing fuel/trim suffix from a numeric model code so it matches the
+ * model *family* rather than one variant: "320d" → "320", "116i" → "116",
+ * "118d" → "118". Word/letter-led models are left untouched ("Golf", "A4",
+ * "Série 3"). Pure. Used by the PT comparison's free-text query and matcher.
+ */
+export function normalizeModelKey(model) {
+  const s = String(model ?? '').trim();
+  const m = s.match(/^(\d{2,4})\s*[a-z]{1,3}$/i);
+  return m ? m[1] : s;
 }
 
 /** Lowercase URL/path slug: "Mercedes-Benz" → "mercedes-benz", "A4 Avant" → "a4-avant". */

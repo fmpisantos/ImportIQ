@@ -95,9 +95,18 @@ select:disabled { opacity: 0.5; }
 .badge.incomplete { background: rgba(245,166,35,0.15); color: var(--amber); }
 .badge.source { font-size: 11px; font-weight: 600; padding: 2px 7px; margin-left: 8px; background: rgba(255,255,255,0.08); color: var(--muted, #9aa); vertical-align: middle; }
 
+.badge.caution { background: rgba(245,166,35,0.15); color: var(--amber); margin-left: 6px; }
+
+.page-note { margin: -4px 0 12px; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 20px 0 8px; }
+.pagination button { background: none; border: 1px solid var(--border); color: var(--fg, inherit); border-radius: 6px; padding: 8px 16px; cursor: pointer; }
+.pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .is-incomplete { border-color: var(--amber); }
 .incomplete-note { padding: 8px 16px; background: rgba(245,166,35,0.08); font-size: 13px; color: var(--amber); }
 .incomplete-note a { color: var(--amber); }
+.caution-note { padding: 8px 16px; background: rgba(245,166,35,0.08); font-size: 13px; color: var(--amber); }
+.caution-note > div + div { margin-top: 4px; }
 
 .result-breakdown {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;

@@ -17,11 +17,17 @@ const CSV_COLUMNS = [
   'fuelType',
   'germanPriceEur',
   'isvEur',
+  'vatEur',
   'transportEur',
   'legalisationEur',
   'totalLandedEur',
-  'ptMarketAvgEur',
+  'ptAskingAvgEur',
+  'ptMarketValueEur',
+  'marketValueMethod',
+  'ptSampleSize',
   'savingEur',
+  'estimatedResaleEur',
+  'marginEur',
 ];
 
 function csvCell(value) {
@@ -40,11 +46,17 @@ function resultToRow(r) {
     fuelType: r.listing?.fuelType,
     germanPriceEur: b.germanPriceEur,
     isvEur: b.isv?.isv,
+    vatEur: b.vat?.applicable ? b.vat.vatEur : null,
     transportEur: b.transport?.amountEur,
     legalisationEur: b.legalisation?.totalEur,
     totalLandedEur: r.totalLandedCostEur,
-    ptMarketAvgEur: r.comparison?.avgPriceEur,
+    ptAskingAvgEur: r.comparison?.avgPriceEur,
+    ptMarketValueEur: r.comparison?.marketValueEur,
+    marketValueMethod: r.comparison?.marketValueMethod,
+    ptSampleSize: r.comparison?.sampleSize,
     savingEur: r.savingEur,
+    estimatedResaleEur: r.estimatedResaleEur,
+    marginEur: r.marginEur,
   };
 }
 

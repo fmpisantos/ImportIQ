@@ -11,18 +11,20 @@
 
 import { getDataSource, getPtCacheTtlMs } from '../config.js';
 import { getComparisonOfficial } from './ptMarketClient.js';
-import { getComparisonDirect } from './direct/olxpt.js';
+import { getComparisonCombined } from './direct/ptComparison.js';
 import { getCached, setCached } from '../db.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-// Bump when the comparison payload shape changes — cached entries written with
-// an older shape (e.g. before sampleListings carried every comparable) must
-// not be served. v4: getComparisonDirect now model/fuel/transmission
-// post-filters and IQR-trims comparables and carries matchedCriteria +
-// lowConfidence; v3 rows hold the pre-fix unfiltered averages (e.g. a BMW 116
-// averaged at €28,920 across M4s/Z4s/320ds) and must be invalidated.
-const CACHE_VERSION = 4;
+// Bump when the comparison payload shape OR its computation changes — older
+// cached entries must not be served. v6: fixed canonicalisation of accented PT
+// labels ("Automática"/"Elétrico"/"Híbrido" were dropped, starving the sample)
+// and Standvirtual now contributes via the verified model-enum filter, so v5
+// rows hold artificially small samples. v5: multi-source orchestration (OLX.pt +
+// Standvirtual) + robust market-value estimate (marketValueEur/method/median) +
+// per-source breakdown. v4 rows hold OLX-only mean averages. v3 rows hold the
+// pre-fix unfiltered averages (a BMW 116 averaged at €28,920 across M4s/Z4s).
+const CACHE_VERSION = 6;
 
 // Cache key bucketed to match the comparison window (year, 20k-km bracket) so
 // equivalent cars share a cached average (PLAN.md §5).
@@ -90,8 +92,13 @@ export async function getComparison(listing, opts = {}) {
   const comparison =
     source === 'official'
       ? await getComparisonOfficial(listing)
-      : await getComparisonDirect(listing); // direct + apify: keyless OLX.pt
+      : await getComparisonCombined(listing); // direct + apify: keyless OLX.pt + Standvirtual
 
-  setCached('pt_market_cache', key, comparison, now);
+  // Don't cache an empty result (every source failed/blocked, or zero
+  // comparables) — that would pin "no comparison" for the full TTL. Let the next
+  // request retry instead.
+  if (comparison && comparison.avgPriceEur != null) {
+    setCached('pt_market_cache', key, comparison, now);
+  }
   return comparison;
 }

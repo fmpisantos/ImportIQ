@@ -1,9 +1,20 @@
 ---
 title: Handle VAT on "new" vehicles (≤6 months or ≤6,000 km) — at least warn
 created: 2026-06-11
-status: todo
+status: done
+completed: 2026-06-13
 priority: high
 ---
+
+> **Outcome (2026-06-13):** Implemented the full fix, not just a warning. New
+> pure `engine/vat.js#assessVat` detects a "new means of transport" (≤6,000 km,
+> or a known reg date ≤6 months) and returns 23% IVA, split into `applicable`
+> (near-certain → added to the landed cost) vs `suspect` (registered this year,
+> month unknown → flagged "verify", no number invented, kept out of the green
+> badge). `landedCost.js` adds `vatEur` to the total and carries `breakdown.vat`;
+> the German VAT margin-scheme caveat is surfaced as a note. UI shows the IVA line
+> + a ⚠ Verify badge/note; CSV export gained a `vatEur` column. Covered by
+> `test/vat.test.js` + `test/landedCost.test.js`.
 
 ## What
 Under EU rules a car is a **"new means of transport"** for VAT if it is ≤6

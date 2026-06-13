@@ -42,8 +42,10 @@ export const isApify = () => getDataSource() === 'apify';
 // --- Direct (keyless scraping: AutoScout24 pages + OLX.pt public API) -------
 export function getDirectConfig() {
   return {
-    // Max listings to pull per search (AS24 serves 20 per page).
-    maxResults: Number(rt('direct_max_results', process.env.DIRECT_MAX_RESULTS ?? 60)),
+    // Size of the card pool pulled per search (AS24 serves 20 per page). Cards
+    // are cheap (no detail/PT work), so we fetch a multi-page pool once and
+    // paginate the expensive costing over it. Raise for more result pages.
+    maxResults: Number(rt('direct_max_results', process.env.DIRECT_MAX_RESULTS ?? 150)),
     // Cache each filter-set's results this long.
     cacheTtlMs: Number(process.env.DIRECT_CACHE_TTL_MS ?? 6 * 60 * 60 * 1000),
     // Pause between successive search-page fetches (politeness).
@@ -128,6 +130,21 @@ export function getPtMarketConfig() {
       token: rt('standvirtual_token', process.env.STANDVIRTUAL_TOKEN ?? null),
     },
   };
+}
+
+/**
+ * Which keyless PT comparison sources to merge on the direct/apify path, in
+ * order. The orchestrator (adapters/direct/ptComparison.js) fans out to each and
+ * combines their comparables; a source that fails is skipped. 'standvirtual' is
+ * best-effort pending live field verification (see its adapter note), but
+ * failure is graceful and its per-source count is surfaced, so it's on by
+ * default to broaden + de-bias the sample.
+ */
+export function getPtSourcesConfig() {
+  return String(rt('pt_sources', process.env.PT_SOURCES ?? 'olx,standvirtual'))
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 // How long PT market comparisons stay fresh in the cache (PLAN.md §9: PT prices

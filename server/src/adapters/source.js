@@ -14,7 +14,7 @@ import {
   listBrandsAndModels as listMobiledeBrands,
 } from './mobilede.js';
 import { searchListingsApify } from './apifySearch.js';
-import { searchListingsDirect } from './directSearch.js';
+import { searchListingsDirect, enrichListingsDirect } from './directSearch.js';
 import { POPULAR_BRANDS } from './brands.js';
 
 export async function searchListings(filters = {}, opts = {}) {
@@ -22,6 +22,17 @@ export async function searchListings(filters = {}, opts = {}) {
   if (source === 'apify') return searchListingsApify(filters, opts);
   if (source === 'direct') return searchListingsDirect(filters, opts);
   return searchMobiledeOrMock(filters, opts); // handles both mock and official
+}
+
+/**
+ * Fill in any source-specific detail a *page* of listings still needs before
+ * costing (currently AutoScout24 detail-page CO₂). Called by the route on just
+ * the page slice so the expensive per-listing detail fetches happen lazily.
+ * No-op for sources whose listings already carry the data (apify/official/mock).
+ */
+export async function enrichListings(listings, opts = {}) {
+  if (getDataSource() === 'direct') return enrichListingsDirect(listings, opts);
+  return listings;
 }
 
 export async function listBrandsAndModels(opts = {}) {
