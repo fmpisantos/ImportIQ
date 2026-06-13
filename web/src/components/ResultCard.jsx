@@ -40,6 +40,24 @@ function PtMarketModal({ comparison, onClose }) {
         <p className="muted">
           Based on {comparison.sampleSize} listings ({comparison.source}).
         </p>
+        {comparison.matchedCriteria && (
+          <p className="muted">
+            Matched on{' '}
+            {[
+              comparison.matchedCriteria.model,
+              comparison.matchedCriteria.fuelType,
+              comparison.matchedCriteria.transmission,
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'brand only'}
+            , {comparison.criteria?.yearRange?.join('–')}.
+          </p>
+        )}
+        {comparison.lowConfidence && (
+          <p className="warn">
+            ⚠ Low confidence — fewer than 5 comparable listings matched.
+          </p>
+        )}
         {comparison.searchUrl && (
           <a href={comparison.searchUrl} target="_blank" rel="noreferrer" className="ext">
             Open this search on OLX.pt ↗

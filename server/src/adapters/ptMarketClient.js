@@ -50,6 +50,44 @@ export function summarise(listings, source, criteria) {
   return { avgPriceEur: avg, sampleSize: valid.length, source, criteria, sampleListings };
 }
 
+/**
+ * Drop price outliers from a comparable set using the Tukey IQR fence
+ * (prices outside [Q1 − 1.5·IQR, Q3 + 1.5·IQR]). Loose free-text searches drag
+ * in non-comparable cars (a base 116 set polluted by an M4 at €50k); the fence
+ * trims those without hand-tuned thresholds. Pure — unit-testable.
+ *
+ * No-ops below 4 priced items (too few to locate quartiles meaningfully) and
+ * returns the input untouched. Once there are enough, only items with a valid
+ * in-fence price survive — unpriced items wouldn't count toward the average
+ * anyway, so dropping them here keeps the surfaced sample honest.
+ *
+ * @param {Array<{priceEur?:number, price?:number}>} items
+ * @returns {Array} the subset within the IQR fence (or all, if too few)
+ */
+export function rejectPriceOutliers(items) {
+  const priceOf = (l) => Number(l.priceEur ?? l.price);
+  const valid = items.filter((l) => Number.isFinite(priceOf(l)) && priceOf(l) > 0);
+  if (valid.length < 4) return items;
+
+  const sorted = valid.map(priceOf).sort((a, b) => a - b);
+  const quantile = (p) => {
+    const idx = (sorted.length - 1) * p;
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+  };
+  const q1 = quantile(0.25);
+  const q3 = quantile(0.75);
+  const iqr = q3 - q1;
+  const low = q1 - 1.5 * iqr;
+  const high = q3 + 1.5 * iqr;
+
+  return items.filter((l) => {
+    const p = priceOf(l);
+    return Number.isFinite(p) && p > 0 && p >= low && p <= high;
+  });
+}
+
 async function httpGetJson(url, headers) {
   const res = await fetch(url, { headers });
   if (!res.ok) {

@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { summarise, comparisonCriteria } from '../src/adapters/ptMarketClient.js';
+import {
+  summarise,
+  comparisonCriteria,
+  rejectPriceOutliers,
+} from '../src/adapters/ptMarketClient.js';
 
 test('comparisonCriteria builds the PLAN §5 window (year ±1, mileage ±20k)', () => {
   const c = comparisonCriteria({ brand: 'BMW', model: '320i', year: 2019, mileageKm: 64000 });
@@ -45,6 +49,23 @@ test('summarise surfaces every priced listing with a URL as sampleListings', () 
     url: 'https://www.olx.pt/d/anuncio/car-0.html',
     title: 'Car 0',
   });
+});
+
+test('rejectPriceOutliers keeps everything below the 4-item threshold', () => {
+  const items = [{ priceEur: 1000 }, { priceEur: 1000 }, { priceEur: 99999 }];
+  assert.deepEqual(rejectPriceOutliers(items), items);
+});
+
+test('rejectPriceOutliers trims a price far outside the IQR fence', () => {
+  const items = [9000, 9500, 10000, 10500, 11000, 69950].map((priceEur) => ({ priceEur }));
+  const kept = rejectPriceOutliers(items);
+  assert.equal(kept.length, 5);
+  assert.ok(!kept.some((l) => l.priceEur === 69950));
+});
+
+test('rejectPriceOutliers leaves a tight cluster untouched', () => {
+  const items = [20000, 21000, 22000, 23000, 24000].map((priceEur) => ({ priceEur }));
+  assert.equal(rejectPriceOutliers(items).length, 5);
 });
 
 test('summarise excludes unpriced or URL-less listings from sampleListings', () => {

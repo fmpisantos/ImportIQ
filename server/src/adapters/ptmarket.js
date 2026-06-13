@@ -18,8 +18,11 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 // Bump when the comparison payload shape changes — cached entries written with
 // an older shape (e.g. before sampleListings carried every comparable) must
-// not be served.
-const CACHE_VERSION = 3;
+// not be served. v4: getComparisonDirect now model/fuel/transmission
+// post-filters and IQR-trims comparables and carries matchedCriteria +
+// lowConfidence; v3 rows hold the pre-fix unfiltered averages (e.g. a BMW 116
+// averaged at €28,920 across M4s/Z4s/320ds) and must be invalidated.
+const CACHE_VERSION = 4;
 
 // Cache key bucketed to match the comparison window (year, 20k-km bracket) so
 // equivalent cars share a cached average (PLAN.md §5).

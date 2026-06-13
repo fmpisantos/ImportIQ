@@ -33,7 +33,7 @@ const bool = (v, dflt) => (v == null || v === '' ? dflt : /^(1|true|yes)$/i.test
 
 /** The active data-source mode: 'mock' | 'direct' | 'official' | 'apify'. */
 export function getDataSource() {
-  return String(rt('data_source', process.env.DATA_SOURCE ?? 'mock')).toLowerCase();
+  return String(rt('data_source', process.env.DATA_SOURCE ?? 'direct')).toLowerCase();
 }
 
 export const isOfficial = () => getDataSource() === 'official';
