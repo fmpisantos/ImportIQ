@@ -136,6 +136,44 @@ function detailByIcon(card, iconName) {
   return entry && !entry.isPlaceholder ? entry.data : null;
 }
 
+// Trailing body-type words AS24 appends to `vehicle.variant` ("Transit Custom
+// Kastenwagen", "Kuga SUV / Geländewagen") — stripped so the variant collapses
+// back to the model family. De-accented + punctuation-stripped before lookup.
+const VARIANT_BODY_WORDS = new Set([
+  'kastenwagen', 'kasten', 'kombi', 'pritsche', 'pritschenwagen', 'fahrgestell',
+  'plane', 'bus', 'kleinbus', 'transporter', 'limousine', 'suv', 'gelandewagen',
+  'cabrio', 'cabriolet', 'coupe', 'van', 'stadtlieferwagen', 'sattelzugmaschine',
+  'kleinwagen', 'sportwagen', 'lkw',
+]);
+
+const deburr = (s) =>
+  String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+
+/**
+ * Reduce a `vehicle.variant` to the model family by dropping trailing body-type
+ * words: "Transit Custom Kastenwagen" → "Transit Custom", "Kuga SUV /
+ * Geländewagen" → "Kuga". Returns null if nothing but body words remain. Pure.
+ */
+function modelFromVariant(variant) {
+  if (!variant) return null;
+  const toks = String(variant).split(/[\s/]+/).filter(Boolean);
+  while (toks.length > 1 && VARIANT_BODY_WORDS.has(deburr(toks[toks.length - 1]))) toks.pop();
+  const out = toks.join(' ').trim();
+  if (!out || VARIANT_BODY_WORDS.has(deburr(out))) return null; // a lone body word is not a model
+  return out;
+}
+
+/**
+ * The card's model family. AS24 usually fills `vehicle.model`/`modelGroup`, but
+ * some cards (notably stripped/sponsored commercial-vehicle listings) leave both
+ * empty while still carrying a `variant` — without a fallback those cars stored
+ * `model: null`, which removed the model gate from the PT comparison and matched
+ * them against any same-brand car. Falls back through variant. Exported for tests.
+ */
+export function deriveModel(vehicle = {}) {
+  return pick(vehicle.model, vehicle.modelGroup, modelFromVariant(vehicle.variant));
+}
+
 /** Map one search-card listing object → our normalised listing shape. */
 export function mapListing(card = {}, referenceYear) {
   const vehicle = card.vehicle ?? {};
@@ -148,7 +186,7 @@ export function mapListing(card = {}, referenceYear) {
   return {
     id: String(pick(card.id, url, '')),
     brand: pick(vehicle.make, vehicle.makeName),
-    model: pick(vehicle.model, vehicle.modelGroup),
+    model: deriveModel(vehicle),
     year,
     firstRegYear: year,
     firstRegMonth: null,

@@ -8,6 +8,7 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "ingest": "node src/jobs/ingestDeals.js",
+    "recompute": "node src/jobs/recomputeDeals.js",
     "test": "node --test"
   },
   "dependencies": {

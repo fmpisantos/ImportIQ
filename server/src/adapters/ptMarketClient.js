@@ -241,6 +241,12 @@ export function finalizeComparison({ items, source, criteria, listing = {} }) {
   const trimmed = rejectPriceOutliers(items);
   const summary = summarise(trimmed, source, criteria);
   const estimate = estimateMarketValue(trimmed, listing);
+  // A comparison is only trustworthy if we could narrow by model — without a
+  // model the matcher falls back to brand+year, which pulls in unrelated cars
+  // (a small van vs pickups). `reliable: false` tells attachComparison to
+  // withhold a verdict rather than show a confident-but-wrong saving.
+  const reliable = Boolean(listing.model && String(listing.model).trim());
+
   return {
     ...summary,
     ...estimate,
@@ -249,6 +255,8 @@ export function finalizeComparison({ items, source, criteria, listing = {} }) {
       fuelType: listing.fuelType ?? null,
       transmission: listing.transmission ?? null,
     },
+    reliable,
+    unreliableReason: reliable ? null : 'model-unknown',
     lowConfidence: summary.sampleSize < 5,
   };
 }

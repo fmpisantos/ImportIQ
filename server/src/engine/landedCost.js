@@ -170,7 +170,11 @@ export function computeLandedCost(listing, config, opts = {}) {
  */
 export function attachComparison(result, comparison, opts = {}) {
   const ref = comparison ? comparison.marketValueEur ?? comparison.avgPriceEur : null;
-  if (result.incomplete || !comparison || ref == null) {
+  // An explicitly-unreliable comparison (e.g. no model to match on — see
+  // ptMarketClient.finalizeComparison) is attached for transparency but must NOT
+  // produce a saving/verdict: a brand-only match is not a real benchmark.
+  const unreliable = comparison?.reliable === false;
+  if (result.incomplete || !comparison || ref == null || unreliable) {
     return {
       ...result,
       comparison: comparison ?? null,

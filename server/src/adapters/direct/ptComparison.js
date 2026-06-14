@@ -49,6 +49,19 @@ function dedupe(items) {
  *   sources[] per-source breakdown
  */
 export async function getComparisonCombined(listing, opts = {}) {
+  // Trust gate: without a model we can only match brand+year, which drags in
+  // unrelated cars. Don't even fetch — return an empty, explicitly-unreliable
+  // comparison so attachComparison withholds the verdict (verdict → 'unknown')
+  // instead of presenting a brand-only average as the PT market value.
+  if (!listing.model || !String(listing.model).trim()) {
+    const criteria = comparisonCriteria(listing);
+    return {
+      ...finalizeComparison({ items: [], source: 'pt', criteria, listing }),
+      searchUrl: null,
+      sources: [],
+    };
+  }
+
   const enabled = opts.sources ?? getPtSourcesConfig();
   const fetchers = enabled
     .map((name) => [name, SOURCE_FETCHERS[name]])

@@ -90,3 +90,23 @@ test('getComparisonCombined dedupes the same car appearing in two sources', asyn
   const out = await getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1 });
   assert.equal(out.sampleSize, 1); // deduped by URL
 });
+
+test('getComparisonCombined refuses to compare (and does not fetch) when the model is unknown', async () => {
+  // A commercial-vehicle card with no model would otherwise match brand+year
+  // only — a small van vs pickups. The trust gate must short-circuit.
+  let fetched = false;
+  const fetchImpl = async () => {
+    fetched = true;
+    return { ok: true, json: async () => ({ data: [] }), text: async () => '' };
+  };
+  const noModel = { brand: 'Ford', model: null, year: 2026, mileageKm: 10, fuelType: 'Petrol' };
+
+  const out = await getComparisonCombined(noModel, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1 });
+
+  assert.equal(fetched, false, 'must not hit any PT source without a model');
+  assert.equal(out.reliable, false);
+  assert.equal(out.unreliableReason, 'model-unknown');
+  assert.equal(out.sampleSize, 0);
+  assert.equal(out.marketValueEur, null);
+  assert.deepEqual(out.sources, []);
+});

@@ -68,7 +68,7 @@ export function verdictOf(result) {
 }
 
 /** Build the full deals row from a listing + its computed result. */
-function rowFrom(listing, result, { enrichStatus, missingFields, configVersion, now, existing }) {
+export function rowFrom(listing, result, { enrichStatus, missingFields, configVersion, now, existing }) {
   return {
     deal_key: dealKey(listing),
     source: listing.source ?? 'unknown',
@@ -154,7 +154,7 @@ async function ingestOne(listing, ctx) {
   // anyway and store it without a comparison (saving stays null).
   let comparison = null;
   try {
-    comparison = await getComparison(enriched, { now });
+    comparison = await getComparison(enriched);
   } catch (err) {
     if (ctx.log) ctx.log(`PT comparison failed for ${dealKey(listing)}: ${err.message ?? err}`);
   }

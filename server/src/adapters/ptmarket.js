@@ -6,34 +6,21 @@
 //                          API (./direct/olxpt.js) — no key needed.
 //   - `official`         → partner OLX/Standvirtual API (./ptMarketClient.js).
 //
-// Live results share a 24h cache (PLAN.md §9: PT prices are slow-moving).
 // All paths expose the same `getComparison(listing)` shape.
+//
+// NO per-listing cache: the daily batch (jobs/ingestDeals.js) already persists
+// the computed comparison per deal in the `deals` table, so each changed listing
+// is compared at most once per run. The old `pt_market_cache` bucketed by
+// brand|model|year|mileage — with a null model (commercial vehicles) it collapsed
+// many distinct cars onto one key and cross-contaminated their comparisons (a
+// petrol Transit Courier served a diesel Ranger's average). Computing fresh per
+// listing removes that whole failure mode.
 
-import { getDataSource, getPtCacheTtlMs } from '../config.js';
+import { getDataSource } from '../config.js';
 import { getComparisonOfficial } from './ptMarketClient.js';
 import { getComparisonCombined } from './direct/ptComparison.js';
-import { getCached, setCached } from '../db.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
-
-// Bump when the comparison payload shape OR its computation changes — older
-// cached entries must not be served. v6: fixed canonicalisation of accented PT
-// labels ("Automática"/"Elétrico"/"Híbrido" were dropped, starving the sample)
-// and Standvirtual now contributes via the verified model-enum filter, so v5
-// rows hold artificially small samples. v5: multi-source orchestration (OLX.pt +
-// Standvirtual) + robust market-value estimate (marketValueEur/method/median) +
-// per-source breakdown. v4 rows hold OLX-only mean averages. v3 rows hold the
-// pre-fix unfiltered averages (a BMW 116 averaged at €28,920 across M4s/Z4s).
-const CACHE_VERSION = 6;
-
-// Cache key bucketed to match the comparison window (year, 20k-km bracket) so
-// equivalent cars share a cached average (PLAN.md §5).
-function cacheKey(listing) {
-  const mileageBucket = Math.round((listing.mileageKm ?? 0) / 20000);
-  return [`v${CACHE_VERSION}`, listing.brand, listing.model, listing.year, mileageBucket]
-    .join('|')
-    .toLowerCase();
-}
 
 // Deterministic pseudo "PT premium over German price" so the same listing
 // always yields the same comparison (no Math.random — keeps results stable).
@@ -72,33 +59,17 @@ export async function getComparisonMock(listing) {
 // --- Public dispatcher ------------------------------------------------------
 
 /**
- * PT market comparison for one listing. Mock returns immediately; live modes
- * check the 24h cache, fetch on miss, and cache the result.
+ * PT market comparison for one listing. Computed fresh every call (no cache —
+ * the deals store is the persistence layer now; see the file header).
  *
  * @param {object} listing  normalised listing
- * @param {object} [opts]   { now } epoch ms, for cache freshness
  * @returns {Promise<{ avgPriceEur: number|null, sampleSize: number,
  *                     source: string, criteria: object }>}
  */
-export async function getComparison(listing, opts = {}) {
+export async function getComparison(listing) {
   const source = getDataSource();
   if (source === 'mock') return getComparisonMock(listing);
-
-  const now = opts.now ?? Date.now();
-  const key = cacheKey(listing);
-  const cached = getCached('pt_market_cache', key, getPtCacheTtlMs(), now);
-  if (cached) return cached;
-
-  const comparison =
-    source === 'official'
-      ? await getComparisonOfficial(listing)
-      : await getComparisonCombined(listing); // direct + apify: keyless OLX.pt + Standvirtual
-
-  // Don't cache an empty result (every source failed/blocked, or zero
-  // comparables) — that would pin "no comparison" for the full TTL. Let the next
-  // request retry instead.
-  if (comparison && comparison.avgPriceEur != null) {
-    setCached('pt_market_cache', key, comparison, now);
-  }
-  return comparison;
+  if (source === 'official') return getComparisonOfficial(listing);
+  // direct + apify: keyless OLX.pt + Standvirtual
+  return getComparisonCombined(listing);
 }

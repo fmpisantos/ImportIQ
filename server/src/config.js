@@ -206,12 +206,6 @@ export function getPtSourcesConfig() {
     .filter(Boolean);
 }
 
-// How long PT market comparisons stay fresh in the cache (PLAN.md §9: PT prices
-// are slow-moving, refreshed daily).
-export function getPtCacheTtlMs() {
-  return Number(process.env.PT_CACHE_TTL_MS ?? 24 * 60 * 60 * 1000);
-}
-
 /**
  * Throw a clear, actionable error if a real mode is selected without the
  * credentials a given adapter needs. Called lazily by the real adapters so the

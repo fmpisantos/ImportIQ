@@ -45,13 +45,12 @@ function migrate(db) {
       value TEXT NOT NULL
     );
 
-    -- Daily-refreshed PT market comparisons (PLAN.md §9). One row per
-    -- brand/model/year/mileage bucket; JSON payload is the comparison object.
-    CREATE TABLE IF NOT EXISTS pt_market_cache (
-      cache_key   TEXT PRIMARY KEY,
-      payload     TEXT NOT NULL,   -- JSON-encoded comparison
-      fetched_at  INTEGER NOT NULL -- epoch ms
-    );
+    -- Retired: the per-listing PT comparison cache. The deals store now persists
+    -- each computed comparison, so a separate bucketed cache is redundant — and
+    -- its coarse brand|model|year|mileage key cross-contaminated distinct cars
+    -- when the model was null (a petrol van served a diesel pickup's average).
+    -- Dropped here so existing contaminated rows don't linger.
+    DROP TABLE IF EXISTS pt_market_cache;
 
     -- mobile.de make/model reference-data tree (slow-moving). Single row.
     CREATE TABLE IF NOT EXISTS refdata_cache (

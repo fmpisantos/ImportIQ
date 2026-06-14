@@ -69,3 +69,15 @@ test('an incomplete result carries no saving/margin', () => {
   assert.equal(withCmp.savingEur, null);
   assert.equal(withCmp.marginEur, null);
 });
+
+test('attachComparison withholds the verdict for an unreliable comparison', () => {
+  const r = computeLandedCost(baseListing, CONFIG);
+  // A market value is present but the comparison is flagged unreliable (e.g. no
+  // model to match on) — no saving should be derived, but the comparison stays
+  // attached so the UI can explain why.
+  const withCmp = attachComparison(r, { marketValueEur: 30000, reliable: false });
+  assert.equal(withCmp.savingEur, null);
+  assert.equal(withCmp.savingPct, null);
+  assert.equal(withCmp.marginEur, null);
+  assert.equal(withCmp.comparison.reliable, false);
+});
