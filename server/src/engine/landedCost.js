@@ -13,6 +13,27 @@ import { assessVat } from './vat.js';
 const round2 = (n) => Math.round(n * 100) / 100;
 
 /**
+ * The listing-level fields the ISV calculation needs but a listing can lack
+ * (a combustion car with no published CO₂/displacement). Returns the missing
+ * field names (prefixed `listing.`) — empty when the car is fully costable.
+ *
+ * Shared so the batch ingestor (jobs/ingestDeals.js) and `computeLandedCost`
+ * agree on what "complete" means: an EV needs neither; a combustion car needs
+ * both. Used to drive enrichment tracking (a missing field is something a
+ * detail-page fetch might still fill — see the enrich-status flow).
+ *
+ * @param {object} listing  normalised listing
+ * @returns {string[]} e.g. ['listing.displacementCm3', 'listing.co2GKm']
+ */
+export function missingListingFields(listing) {
+  const combustion = normaliseFuel(listing.fuelType) !== 'electric';
+  const missing = [];
+  if (combustion && listing.displacementCm3 == null) missing.push('listing.displacementCm3');
+  if (combustion && listing.co2GKm == null) missing.push('listing.co2GKm');
+  return missing;
+}
+
+/**
  * @param {object} listing            Normalised mobile.de listing
  * @param {object} config             Result of buildConfigView() from db layer:
  *   @param {object} config.byKey       cost_config rows keyed by `key`
@@ -30,8 +51,7 @@ export function computeLandedCost(listing, config, opts = {}) {
   // null inputs silently yields a wrong (negative-environmental) ISV, so mark
   // the result incomplete instead of estimating.
   const combustion = normaliseFuel(listing.fuelType) !== 'electric';
-  if (combustion && listing.displacementCm3 == null) missing.push('listing.displacementCm3');
-  if (combustion && listing.co2GKm == null) missing.push('listing.co2GKm');
+  missing.push(...missingListingFields(listing));
 
   const isv =
     combustion && (listing.displacementCm3 == null || listing.co2GKm == null)

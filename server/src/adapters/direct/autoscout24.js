@@ -19,6 +19,7 @@ import {
   inferEmissionStandard,
   slugify,
 } from '../normalize.js';
+import { missingListingFields } from '../../engine/landedCost.js';
 
 const BASE_URL = 'https://www.autoscout24.de';
 const PAGE_SIZE = 20; // AS24 serves 20 listings per search page
@@ -54,8 +55,17 @@ const BODY_CODES = {
   van: '7',
 };
 
-/** Public search URL for one results page. Exported for tests. */
-export function buildSearchUrl(filters = {}, { country = 'D', page = 1, includeModel = true } = {}) {
+/**
+ * Public search URL for one results page. Exported for tests.
+ *
+ * `sort`/`desc` drive AS24's result ordering — the daily batch rotates these
+ * (see SWEEP_SORTS) so successive runs page through different ~400-card windows
+ * instead of re-reading the same top cards. Defaults reproduce the UI's order.
+ */
+export function buildSearchUrl(
+  filters = {},
+  { country = 'D', page = 1, includeModel = true, sort = 'standard', desc = 0 } = {}
+) {
   let path = '/lst';
   if (filters.brand) {
     path += `/${slugify(filters.brand)}`;
@@ -66,8 +76,8 @@ export function buildSearchUrl(filters = {}, { country = 'D', page = 1, includeM
     atype: 'C', // cars
     cy: country,
     damaged_listing: 'exclude',
-    desc: '0',
-    sort: 'standard',
+    desc: String(desc === 1 || desc === '1' ? 1 : 0),
+    sort: String(sort || 'standard'),
     ustate: 'N,U', // new + used (excludes damaged/classic oddities)
     page: String(page),
   });
@@ -197,6 +207,8 @@ export async function searchAutoScout24(filters = {}, cfg = {}) {
     country = 'D',
     requestDelayMs = 300,
     referenceYear = new Date().getFullYear(),
+    sort = 'standard',
+    desc = 0,
     fetchImpl = fetch,
   } = cfg;
 
@@ -204,7 +216,7 @@ export async function searchAutoScout24(filters = {}, cfg = {}) {
     const out = [];
     const pages = Math.min(MAX_PAGES, Math.ceil(maxResults / PAGE_SIZE));
     for (let page = 1; page <= pages; page++) {
-      const url = buildSearchUrl(filters, { country, page, includeModel });
+      const url = buildSearchUrl(filters, { country, page, includeModel, sort, desc });
       let cards;
       try {
         cards = listingsFrom(await fetchPage(url, fetchImpl));
@@ -238,31 +250,60 @@ export async function searchAutoScout24(filters = {}, cfg = {}) {
 
 /**
  * Fetch a listing's detail page and fill in fields the search card lacked
- * (CO₂, exact kW, displacement). Returns a *new* listing object; on any
- * fetch/parse failure — or when the detail page doesn't publish the value
- * either — the original fields are kept.
+ * (CO₂, exact kW, displacement), reporting *why* a gap remains so the batch can
+ * retry transient failures without re-hammering terminal ones. Returns
+ * `{ listing, enrichStatus, missingFields }`:
+ *
+ *   - `complete`       — every ISV field the calc needs is now present.
+ *   - `enrich_pending` — the detail fetch/parse FAILED (network, 403, no
+ *                        `__NEXT_DATA__`). The data probably exists; retry next
+ *                        run. Original (null) fields are kept.
+ *   - `source_missing` — the detail page loaded fine but genuinely omits the
+ *                        field. Terminal — no retry can ever fix it.
+ *
+ * A listing already carrying everything skips the fetch entirely (`complete`).
  *
  * @param {object} listing   normalised listing with a `url`
  * @param {object} [opts]    { fetchImpl }
  */
 export async function enrichListing(listing, opts = {}) {
   const { fetchImpl = fetch } = opts;
-  if (!listing?.url || !listing.url.startsWith(BASE_URL)) return listing;
+  const before = missingListingFields(listing);
+  if (!before.length) return { listing, enrichStatus: 'complete', missingFields: [] };
+
+  // No usable detail page to consult — this source can't fill the gap, so it's
+  // terminal for this car rather than a retryable fetch failure.
+  if (!listing?.url || !listing.url.startsWith(BASE_URL)) {
+    return { listing, enrichStatus: 'source_missing', missingFields: before };
+  }
+
+  let vehicle;
   try {
     const html = await fetchPage(listing.url, fetchImpl);
-    const vehicle = extractNextData(html)?.props?.pageProps?.listingDetails?.vehicle;
-    if (!vehicle) return listing;
-    const co2 = pick(
-      vehicle.co2emissionInGramPerKmWithFallback?.raw,
-      vehicle.rawData?.fuels?.primary?.co2emissionInGramPerKmWithFallback?.raw
-    );
-    return {
-      ...listing,
-      co2GKm: listing.co2GKm ?? intFrom(co2),
-      powerKw: listing.powerKw ?? intFrom(vehicle.rawPowerInKw),
-      displacementCm3: listing.displacementCm3 ?? intFrom(vehicle.rawDisplacementInCCM),
-    };
+    vehicle = extractNextData(html)?.props?.pageProps?.listingDetails?.vehicle;
   } catch {
-    return listing;
+    return { listing, enrichStatus: 'enrich_pending', missingFields: before };
   }
+  // Page came back but the embedded JSON didn't parse / had no vehicle block —
+  // treat as a transient parse failure (the data likely exists), retry next run.
+  if (!vehicle) return { listing, enrichStatus: 'enrich_pending', missingFields: before };
+
+  const co2 = pick(
+    vehicle.co2emissionInGramPerKmWithFallback?.raw,
+    vehicle.rawData?.fuels?.primary?.co2emissionInGramPerKmWithFallback?.raw
+  );
+  const enriched = {
+    ...listing,
+    co2GKm: listing.co2GKm ?? intFrom(co2),
+    powerKw: listing.powerKw ?? intFrom(vehicle.rawPowerInKw),
+    displacementCm3: listing.displacementCm3 ?? intFrom(vehicle.rawDisplacementInCCM),
+  };
+  const after = missingListingFields(enriched);
+  // Detail page loaded but still no CO₂/displacement → the source simply doesn't
+  // publish it. Terminal, not a retry candidate.
+  return {
+    listing: enriched,
+    enrichStatus: after.length ? 'source_missing' : 'complete',
+    missingFields: after,
+  };
 }

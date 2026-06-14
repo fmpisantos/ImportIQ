@@ -35,6 +35,52 @@ app.use((err, req, res, next) => {
 // Initialise the SQLite store (migrate + seed) before accepting traffic.
 getDb();
 
+// In-process deal-ingestion scheduler: a run kicks off at startup (to populate /
+// refresh the store immediately) and then once a day at 03:00 local time. Each
+// run is awaited to completion before another can begin, so the startup run and
+// the 03:00 run never overlap; a failure is logged, not fatal.
+function startIngestScheduler() {
+  let running = false;
+  const runOnce = async (trigger) => {
+    if (running) return; // never overlap passes
+    running = true;
+    try {
+      const { runIngest } = await import('./jobs/ingestDeals.js');
+      console.log(`[ingest] starting scheduled run (${trigger})`);
+      await runIngest();
+    } catch (err) {
+      console.error('[ingest] scheduled run failed:', err);
+    } finally {
+      running = false;
+    }
+  };
+
+  // ms from now until the next 03:00 local (today's if still ahead, else tomorrow).
+  const msUntilNext3am = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(3, 0, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    return next.getTime() - now.getTime();
+  };
+
+  // Recompute the delay after each run rather than using a fixed 24h interval, so
+  // the run stays pinned to 03:00 across DST shifts. .unref() so this timer never
+  // keeps the process alive on its own (the HTTP listener does that).
+  const scheduleNext = () => {
+    const delay = msUntilNext3am();
+    console.log(`[ingest] next daily run in ~${(delay / 3.6e6).toFixed(1)}h (03:00 local)`);
+    setTimeout(async () => {
+      await runOnce('daily 03:00');
+      scheduleNext();
+    }, delay).unref();
+  };
+
+  runOnce('startup'); // fire-and-forget — don't block the server coming up
+  scheduleNext();
+}
+
 app.listen(PORT, () => {
   console.log(`ImportIQ API listening on http://localhost:${PORT}${BASE_PATH}/api (data source: ${getDataSource()})`);
+  startIngestScheduler();
 });

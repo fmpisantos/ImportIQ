@@ -145,7 +145,7 @@ export default function FilterForm({ onRun, running }) {
       </div>
 
       <button className="run" type="submit" disabled={running}>
-        {running ? 'Running…' : 'Run Bot'}
+        {running ? 'Searching…' : 'Search'}
       </button>
     </form>
   );

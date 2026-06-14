@@ -17,11 +17,12 @@ import { matchesFilters, dedupeListings } from './normalize.js';
 import { searchAutoScout24, enrichListing } from './direct/autoscout24.js';
 import { searchSiteApify } from './apifySearch.js';
 import { searchListingsViaOfficialApi } from './mobilede.js';
+import { missingListingFields } from '../engine/landedCost.js';
 
 // A listing's published specs are immutable — cache enriched details for long.
 const DETAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function cacheKey(filters) {
+function cacheKey(filters, { sort = 'standard', desc = 0 } = {}) {
   const relevant = {
     brand: filters.brand ?? null,
     model: filters.model ?? null,
@@ -32,6 +33,9 @@ function cacheKey(filters) {
     maxMileageKm: filters.maxMileageKm ?? null,
     fuelTypes: [...(filters.fuelTypes ?? [])].sort(),
     transmission: filters.transmission ?? null,
+    // Each sort order surfaces a different result window, so they cache apart.
+    sort,
+    desc,
   };
   return `direct:autoscout24:${JSON.stringify(relevant)}`;
 }
@@ -75,6 +79,49 @@ async function searchMobilede(filters, referenceYear, now) {
   return searchSiteApify('mobilede', filters, referenceYear, now);
 }
 
+/**
+ * One polite, cached, single-attempt enrich of an AutoScout24 listing. The
+ * detail-page cache (7 days — specs never change) is consulted first; on a miss
+ * we do exactly one detail fetch and classify the outcome via `enrichListing`.
+ * Terminal outcomes (`complete`/`source_missing`) are cached; a transient
+ * failure (`enrich_pending`) is left uncached so it's retried.
+ *
+ * `fetchBudget` (optional) caps live fetches across a batch run: when a car
+ * would need a network fetch but the budget is spent, it's returned
+ * `enrich_pending` without fetching — picked up next run. The live search path
+ * passes no budget (it's already bounded by DIRECT_ENRICH_LIMIT).
+ *
+ * @returns {Promise<{ listing, enrichStatus, missingFields }>}
+ */
+export async function enrichOneCached(listing, { now = Date.now(), fetchBudget = null } = {}) {
+  const key = `direct:as24:detail:${listing.id}`;
+  const cached = getCached('listings_cache', key, DETAIL_TTL_MS, now);
+  if (cached) {
+    const merged = { ...listing, ...cached };
+    const missing = missingListingFields(merged);
+    return {
+      listing: merged,
+      enrichStatus: missing.length ? 'source_missing' : 'complete',
+      missingFields: missing,
+    };
+  }
+
+  // Only a missing-field car with a detail page actually spends a live fetch;
+  // guard the budget around that case so we don't defer cars we wouldn't fetch.
+  const missing = missingListingFields(listing);
+  const willFetch = missing.length > 0 && !!listing.url;
+  if (willFetch && fetchBudget && !fetchBudget.tryConsume()) {
+    return { listing, enrichStatus: 'enrich_pending', missingFields: missing };
+  }
+
+  const result = await enrichListing(listing);
+  if (result.enrichStatus !== 'enrich_pending') {
+    const { co2GKm, powerKw, displacementCm3 } = result.listing;
+    setCached('listings_cache', key, { co2GKm, powerKw, displacementCm3 }, now);
+  }
+  return result;
+}
+
 async function enrichMissingCo2(listings, cfg, now) {
   // Only AutoScout24 listings can be enriched from their detail page; don't
   // let other sources' gaps eat the enrich budget.
@@ -88,30 +135,27 @@ async function enrichMissingCo2(listings, cfg, now) {
 
   const enrichedById = new Map();
   await mapPool(targets, 3, async (listing) => {
-    const key = `direct:as24:detail:${listing.id}`;
-    const cached = getCached('listings_cache', key, DETAIL_TTL_MS, now);
-    if (cached) {
-      enrichedById.set(listing.id, { ...listing, ...cached });
-      return;
-    }
-    const enriched = await enrichListing(listing);
-    const { co2GKm, powerKw, displacementCm3 } = enriched;
-    setCached('listings_cache', key, { co2GKm, powerKw, displacementCm3 }, now);
+    const { listing: enriched } = await enrichOneCached(listing, { now });
     enrichedById.set(listing.id, enriched);
   });
 
   return listings.map((l) => enrichedById.get(l.id) ?? l);
 }
 
-async function searchAs24Cached(filters, cfg, referenceYear, now) {
-  const key = cacheKey(filters);
+async function searchAs24Cached(filters, cfg, referenceYear, now, sweep = {}) {
+  const sort = sweep.sort ?? 'standard';
+  const desc = sweep.desc ?? 0;
+  const maxResults = sweep.maxResults ?? cfg.maxResults;
+  const key = cacheKey(filters, { sort, desc });
   let listings = getCached('listings_cache', key, cfg.cacheTtlMs, now);
   if (!listings) {
     listings = await searchAutoScout24(filters, {
-      maxResults: cfg.maxResults,
+      maxResults,
       country: cfg.autoscout24Country,
       requestDelayMs: cfg.requestDelayMs,
       referenceYear,
+      sort,
+      desc,
     });
     setCached('listings_cache', key, listings, now);
   }
@@ -127,7 +171,9 @@ async function searchAs24Cached(filters, cfg, referenceYear, now) {
  * runs them only for the page it's about to show (see enrichListingsDirect).
  *
  * @param {object} filters  see PLAN.md §3
- * @param {object} [opts]   { now } epoch ms (testability)
+ * @param {object} [opts]   { now } epoch ms (testability); { sort, desc,
+ *   maxResults } let the batch sweep rotate AS24 sort orders and page deeper
+ *   than a UI request would (see jobs/ingestDeals.js).
  * @returns {Promise<object[]>} normalised, filtered, deduped pool tagged with
  *   source (autoscout24, plus mobilede when a key is saved)
  */
@@ -135,10 +181,11 @@ export async function searchListingsDirect(filters = {}, opts = {}) {
   const now = opts.now ?? Date.now();
   const referenceYear = filters.referenceYear ?? new Date(now).getFullYear();
   const cfg = getDirectConfig();
+  const sweep = { sort: opts.sort, desc: opts.desc, maxResults: opts.maxResults };
 
   // One blocked/failing source shouldn't sink the search — collect what works.
   const [as24, mobilede] = await Promise.allSettled([
-    searchAs24Cached(filters, cfg, referenceYear, now),
+    searchAs24Cached(filters, cfg, referenceYear, now, sweep),
     searchMobilede(filters, referenceYear, now),
   ]);
 

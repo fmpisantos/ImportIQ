@@ -14,8 +14,9 @@ import {
   listBrandsAndModels as listMobiledeBrands,
 } from './mobilede.js';
 import { searchListingsApify } from './apifySearch.js';
-import { searchListingsDirect, enrichListingsDirect } from './directSearch.js';
+import { searchListingsDirect, enrichListingsDirect, enrichOneCached } from './directSearch.js';
 import { POPULAR_BRANDS } from './brands.js';
+import { missingListingFields } from '../engine/landedCost.js';
 
 export async function searchListings(filters = {}, opts = {}) {
   const source = getDataSource();
@@ -39,4 +40,26 @@ export async function listBrandsAndModels(opts = {}) {
   const source = getDataSource();
   if (source === 'apify' || source === 'direct') return POPULAR_BRANDS;
   return listMobiledeBrands(opts);
+}
+
+/**
+ * One single-attempt, status-returning enrich of a listing for the batch
+ * ingestor (jobs/ingestDeals.js). AutoScout24 listings consult their detail
+ * page (cached, one fetch, budget-aware); every other source already carries
+ * its specs, so the status is read straight off the current fields and is
+ * terminal (a missing field there is `source_missing`, never retried).
+ *
+ * @param {object} listing   normalised listing tagged with `source`
+ * @param {object} [opts]    { now, fetchBudget } — fetchBudget caps live AS24
+ *                          detail fetches across a run
+ * @returns {Promise<{ listing, enrichStatus, missingFields }>}
+ */
+export async function tryEnrichListing(listing, opts = {}) {
+  if (listing.source === 'autoscout24') return enrichOneCached(listing, opts);
+  const missing = missingListingFields(listing);
+  return {
+    listing,
+    enrichStatus: missing.length ? 'source_missing' : 'complete',
+    missingFields: missing,
+  };
 }

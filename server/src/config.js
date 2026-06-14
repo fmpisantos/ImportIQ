@@ -57,6 +57,65 @@ export function getDirectConfig() {
   };
 }
 
+// --- Batch deal-ingestion (jobs/ingestDeals.js) -----------------------------
+
+// AutoScout24 sort orders the daily sweep rotates through. A single ordering
+// always returns the same top cards, so naive re-runs never reach deeper
+// inventory; rotating these across days pages through the whole result set.
+// `{ sort, desc }` map straight onto AS24's URL params (desc 0=asc, 1=desc).
+export const SWEEP_SORTS = [
+  { sort: 'price', desc: 0 }, // cheapest first — where the deals hide
+  { sort: 'price', desc: 1 }, // most expensive first
+  { sort: 'age', desc: 1 }, // newest registration first
+  { sort: 'age', desc: 0 }, // oldest registration first
+  { sort: 'mileage', desc: 0 }, // lowest mileage first
+  { sort: 'standard', desc: 0 }, // AS24's default relevance order
+];
+
+const num = (v, dflt) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+};
+
+export function getIngestConfig() {
+  // The sweep query set. Default is one broad, unfiltered query (paginated deep
+  // across rotating sort orders). Override INGEST_SWEEP_QUERIES with a JSON
+  // array of filter objects to fan out across segments (brands, price bands).
+  let sweepQueries = [{}];
+  const raw = process.env.INGEST_SWEEP_QUERIES;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) sweepQueries = parsed;
+    } catch {
+      console.warn('[ingest] INGEST_SWEEP_QUERIES is not valid JSON — using the broad default');
+    }
+  }
+
+  const day = 24 * 60 * 60 * 1000;
+  return {
+    sweepQueries,
+    // How many sort orders to cover per run (rotated by day across SWEEP_SORTS).
+    sortsPerRun: num(process.env.INGEST_SORTS_PER_RUN, 2),
+    // Cards pulled per (query × sort). High because cost is amortised across
+    // runs, not paid per UI request. AS24 hard-caps at 20 pages × 20 = 400.
+    maxResults: num(process.env.INGEST_MAX_RESULTS, 400),
+    // Politeness between detail/PT fetches.
+    requestDelayMs: num(process.env.INGEST_REQUEST_DELAY_MS, 300),
+    // Concurrent per-listing ingest workers (enrich + PT). Low to look human.
+    concurrency: num(process.env.INGEST_CONCURRENCY, 3),
+    // Hard ceiling on live detail-page fetches per run; cars over the cap are
+    // stored enrich_pending and picked up next run (no burst, predictable load).
+    maxDetailFetchesPerRun: num(process.env.INGEST_MAX_DETAIL_FETCHES, 300),
+    // Max enrich-backlog rows drained at the start of each run.
+    enrichBacklogLimit: num(process.env.INGEST_ENRICH_BACKLOG_LIMIT, 100),
+    // Freshness lifecycle: not seen this long → stale, then sold, then purged.
+    staleAfterMs: num(process.env.INGEST_STALE_AFTER_MS, 3 * day),
+    soldAfterMs: num(process.env.INGEST_SOLD_AFTER_MS, 7 * day),
+    purgeAfterMs: num(process.env.INGEST_PURGE_AFTER_MS, 90 * day),
+  };
+}
+
 export function getMobiledeConfig() {
   return {
     baseUrl: process.env.MOBILEDE_BASE_URL ?? 'https://services.mobile.de/search-api',

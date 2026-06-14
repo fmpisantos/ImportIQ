@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
+    "ingest": "node src/jobs/ingestDeals.js",
     "test": "node --test"
   },
   "dependencies": {
