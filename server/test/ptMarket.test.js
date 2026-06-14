@@ -109,6 +109,48 @@ test('comparableMatches rejects a different model family', () => {
   assert.equal(comparableMatches(c, SUBJECT), false);
 });
 
+test('comparableMatches keeps a more-specific trim of the subject family', () => {
+  // comparable "320 d AMG" CONTAINS the subject family "320" — legit comparable.
+  const c = { model: '320 d', fuel: 'Diesel', transmission: 'Automatic', powerKw: 140 };
+  assert.equal(comparableMatches(c, SUBJECT), true);
+});
+
+test('comparableMatches does NOT match up to a broader, costlier model line', () => {
+  // The Velar regression: a flagship "Range Rover" must not match a
+  // "Range Rover Velar" subject just because the subject contains "range rover".
+  const subject = { model: 'Range Rover Velar', fuelType: 'Diesel' };
+  assert.equal(comparableMatches({ model: 'Range Rover', fuel: 'Diesel' }, subject), false);
+  // …while a genuine Velar trim still matches.
+  assert.equal(
+    comparableMatches({ model: 'Range Rover Velar 3.0 D HSE', fuel: 'Diesel' }, subject),
+    true
+  );
+});
+
+test('finalizeComparison withholds reliability below the minimum sample', () => {
+  const items = [{ priceEur: 50000 }, { priceEur: 52000 }]; // only 2 comparables
+  const out = finalizeComparison({
+    items,
+    source: 'olx.pt',
+    criteria: WINDOW,
+    listing: { model: 'X4', fuelType: 'Diesel' },
+  });
+  assert.equal(out.reliable, false);
+  assert.equal(out.unreliableReason, 'insufficient-sample');
+});
+
+test('finalizeComparison is reliable at or above the minimum sample', () => {
+  const items = [{ priceEur: 50000 }, { priceEur: 52000 }, { priceEur: 51000 }];
+  const out = finalizeComparison({
+    items,
+    source: 'olx.pt',
+    criteria: WINDOW,
+    listing: { model: 'X4', fuelType: 'Diesel' },
+  });
+  assert.equal(out.reliable, true);
+  assert.equal(out.unreliableReason, null);
+});
+
 // --- withinComparisonWindow -------------------------------------------------
 
 const WINDOW = { yearRange: [2018, 2020], mileageRangeKm: [44000, 84000] };

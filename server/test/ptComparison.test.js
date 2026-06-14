@@ -91,6 +91,33 @@ test('getComparisonCombined dedupes the same car appearing in two sources', asyn
   assert.equal(out.sampleSize, 1); // deduped by URL
 });
 
+test('getComparisonCombined dedupes a cross-posted car with DIFFERENT urls per source', () => {
+  // A dealer cross-posts the same car to OLX and Standvirtual; each platform
+  // mints its own URL, so URL-dedup alone would count it twice and inflate the
+  // sample. The content fingerprint (price + trim title) must collapse them.
+  const olxPayload = {
+    data: [
+      olxOffer({ price: 10000, url: 'https://olx.pt/uniq-a', modelo: '116', combustivel: 'diesel' }),
+      olxOffer({ price: 22000, url: 'https://olx.pt/dup-olx', modelo: '116', combustivel: 'diesel' }),
+    ],
+  };
+  const svPage = svHtml([
+    svNode({ url: '/uniq-b', price: 11000, model: '116', year: 2013, mileage: 115000, fuel: 'Diesel' }),
+    // same car as the €22000 OLX one: same title ("116") + price, different URL.
+    svNode({ url: '/dup-sv', price: 22000, model: '116', year: 2013, mileage: 116000, fuel: 'Diesel' }),
+  ]);
+  const fetchImpl = async (url) =>
+    String(url).includes('olx.pt')
+      ? { ok: true, json: async () => olxPayload }
+      : { ok: true, text: async () => svPage };
+
+  return getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1 }).then(
+    (out) => {
+      assert.equal(out.sampleSize, 3); // 2 unique + 1 cross-posted dup collapsed
+    }
+  );
+});
+
 test('getComparisonCombined refuses to compare (and does not fetch) when the model is unknown', async () => {
   // A commercial-vehicle card with no model would otherwise match brand+year
   // only — a small van vs pickups. The trust gate must short-circuit.

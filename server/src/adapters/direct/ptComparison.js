@@ -23,17 +23,36 @@ const SOURCE_FETCHERS = {
   standvirtual: fetchStandvirtual,
 };
 
-/** Drop the same car listed twice (across or within sources). URL is the
- *  strongest key; otherwise price+mileage+year+model. */
+const norm = (s) => String(s ?? '').trim().toLowerCase();
+
+/**
+ * Drop the same car listed twice, WITHIN or ACROSS sources.
+ *
+ * A URL key alone is not enough: dealers cross-post the identical car to OLX.pt
+ * *and* Standvirtual, and each platform mints its own URL — so URL-dedup leaves
+ * the same vehicle counted twice. That double-counts its asking price in the
+ * median AND inflates the sample size, defeating the low-confidence guard (an
+ * X4 "market" built on one real listing looked like two). So we also key on a
+ * content fingerprint — price + year + normalised title (the trim text, which is
+ * identical across a dealer's cross-posts) — and treat a hit on EITHER key as a
+ * duplicate. Year/mileage are deliberately excluded from the fingerprint: the
+ * two platforms often omit or round them differently for the same car (OLX in
+ * particular frequently has no year param), which would wrongly keep both
+ * copies. Price + trim title is what a dealer's cross-posts reliably share, and
+ * is specific enough that a same-priced collision across two genuinely different
+ * cars is rare — and merging two real cars only shrinks the sample, biasing
+ * toward "unreliable", which is the safe direction here.
+ */
 function dedupe(items) {
-  const seen = new Set();
+  const seenUrl = new Set();
+  const seenContent = new Set();
   const out = [];
   for (const c of items) {
-    const key = c.url
-      ? `url:${String(c.url).toLowerCase()}`
-      : ['k', c.priceEur, c.mileageKm, c.year, String(c.model ?? '').toLowerCase()].join('|');
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const urlKey = c.url ? `url:${norm(c.url)}` : null;
+    const contentKey = ['c', c.priceEur, norm(c.title ?? c.model)].join('|');
+    if ((urlKey && seenUrl.has(urlKey)) || seenContent.has(contentKey)) continue;
+    if (urlKey) seenUrl.add(urlKey);
+    seenContent.add(contentKey);
     out.push(c);
   }
   return out;

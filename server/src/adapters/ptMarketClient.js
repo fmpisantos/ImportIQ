@@ -97,6 +97,11 @@ export function rejectPriceOutliers(items) {
 const POWER_TOLERANCE = 0.2; // ±20% on engine power (kW)
 const DISPLACEMENT_TOLERANCE = 0.15; // ±15% on displacement (cm³)
 
+// Fewest distinct comparables a comparison needs before we'll stake a verdict on
+// its market value. One or two asking prices is anecdote, not a benchmark; below
+// this the comparison is flagged unreliable and no saving/verdict is shown.
+const MIN_RELIABLE_SAMPLE = 3;
+
 /** Symmetric tolerance check; null/zero on either side ⇒ pass (field-tolerant). */
 function withinTolerance(a, b, tol) {
   if (a == null || b == null || !(a > 0) || !(b > 0)) return true;
@@ -107,9 +112,16 @@ function withinTolerance(a, b, tol) {
  * Does a PT comparable actually match the subject listing? Narrows on model
  * family, fuel, transmission, engine power and displacement — but only on
  * fields BOTH sides publish (mirrors normalize.js#matchesFilters: we can't drop
- * a comparable for a field it doesn't expose). Model matching is lenient — the
- * listing's name and its stripped family key are both tried, and either
- * containing the other counts ("320d" listing ↔ OLX "320"). Pure.
+ * a comparable for a field it doesn't expose).
+ *
+ * Model matching is DIRECTIONAL: the comparable's model must CONTAIN the
+ * subject's model (or its stripped family key) — never the reverse. The reverse
+ * direction was a real defect: it let a flagship "Range Rover" (€68k) match a
+ * "Range Rover Velar" subject because the subject string contains "range rover",
+ * dragging a far pricier, different vehicle line into the average. Requiring the
+ * comparable to be the subject (or a more-specific trim of it) keeps the genuine
+ * leniency we want — comparable "320d"/"320 d AMG" matches a "320" family
+ * subject — without matching *up* to a broader, costlier model. Pure.
  *
  * Comparable shape: { priceEur, model?, fuel?, transmission?, powerKw?,
  *   displacementCm3? }. The subject is a normalised listing (powerKw in kW).
@@ -118,7 +130,7 @@ export function comparableMatches(c, listing) {
   if (listing.model && c.model) {
     const cm = norm(c.model);
     const candidates = [norm(listing.model), norm(normalizeModelKey(listing.model))];
-    if (!candidates.some((x) => x && (cm.includes(x) || x.includes(cm)))) return false;
+    if (!candidates.some((x) => x && cm.includes(x))) return false;
   }
   if (listing.fuelType && c.fuel && norm(c.fuel) !== norm(listing.fuelType)) return false;
   if (
@@ -241,11 +253,18 @@ export function finalizeComparison({ items, source, criteria, listing = {} }) {
   const trimmed = rejectPriceOutliers(items);
   const summary = summarise(trimmed, source, criteria);
   const estimate = estimateMarketValue(trimmed, listing);
-  // A comparison is only trustworthy if we could narrow by model — without a
-  // model the matcher falls back to brand+year, which pulls in unrelated cars
-  // (a small van vs pickups). `reliable: false` tells attachComparison to
-  // withhold a verdict rather than show a confident-but-wrong saving.
-  const reliable = Boolean(listing.model && String(listing.model).trim());
+  // A comparison is only trustworthy on TWO counts:
+  //   1. we could narrow by model — without one the matcher falls back to
+  //      brand+year, pulling in unrelated cars (a small van vs pickups);
+  //   2. enough distinct comparables survived. A "market value" taken from one
+  //      or two asking prices is noise, not a benchmark — a single optimistic
+  //      ask then reads as a €15k+ phantom profit (and IQR trimming can't fire
+  //      below 4 items to catch it). Below the floor we withhold the verdict.
+  // Either failure sets `reliable: false`, which tells attachComparison to drop
+  // the saving/verdict rather than show a confident-but-wrong number.
+  const hasModel = Boolean(listing.model && String(listing.model).trim());
+  const enoughSample = summary.sampleSize >= MIN_RELIABLE_SAMPLE;
+  const reliable = hasModel && enoughSample;
 
   return {
     ...summary,
@@ -256,7 +275,11 @@ export function finalizeComparison({ items, source, criteria, listing = {} }) {
       transmission: listing.transmission ?? null,
     },
     reliable,
-    unreliableReason: reliable ? null : 'model-unknown',
+    unreliableReason: !hasModel
+      ? 'model-unknown'
+      : !enoughSample
+        ? 'insufficient-sample'
+        : null,
     lowConfidence: summary.sampleSize < 5,
   };
 }
