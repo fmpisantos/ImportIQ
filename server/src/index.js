@@ -80,7 +80,16 @@ function startIngestScheduler() {
   scheduleNext();
 }
 
+// The scheduler (incl. its startup run) only runs when explicitly enabled, so a
+// local `npm run dev` never kicks off an ingest pass on every boot. Set
+// ENABLE_INGEST_SCHEDULER=true (or 1) in production to turn it on.
+const SCHEDULER_ENABLED = /^(true|1)$/i.test(process.env.ENABLE_INGEST_SCHEDULER ?? '');
+
 app.listen(PORT, () => {
   console.log(`ImportIQ API listening on http://localhost:${PORT}${BASE_PATH}/api (data source: ${getDataSource()})`);
-  startIngestScheduler();
+  if (SCHEDULER_ENABLED) {
+    startIngestScheduler();
+  } else {
+    console.log('[ingest] scheduler disabled (set ENABLE_INGEST_SCHEDULER=true to enable)');
+  }
 });
