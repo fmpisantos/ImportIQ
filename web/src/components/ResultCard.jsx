@@ -343,7 +343,7 @@ export default function ResultCard({ result: incomingResult }) {
                   {result.marginPct != null && ` (${result.marginPct}%)`}
                 </li>
               )}
-              <li>Annual IUC (est.): {eur(breakdown.iuc.annualIucEur)}/yr</li>
+              <li>Annual IUC: {eur(breakdown.iuc.annualIucEur)}/yr</li>
             </ul>
             {hasPtDetails && (
               <button type="button" className="ext linkish" onClick={() => setPtModalOpen(true)}>

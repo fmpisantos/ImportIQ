@@ -1,9 +1,19 @@
 ---
 title: Refine IUC from estimate to exact calculation
 created: 2026-06-10
-status: todo
+completed: 2026-06-15
+status: done
 priority: low
 ---
+
+Outcome: replaced the IUC estimate with the exact statutory Categoria B
+calculation (OE2026 / Lei n.º 73-A/2025). `iuc.js` now models all four
+components — cilindrada, CO₂ (separate NEDC/WLTP brackets), the 2017+ additional
+CO₂ tax, year coefficient, and the cylinder-based diesel surcharge — via
+`calculateIUC(...)`, wired through `landedCost.js` with the resolved emission
+standard. Cross-checked against the official worked example to the cent
+(2020 diesel, 1968 cm³, 120 g/km NEDC ⇒ 241.49 €). UI label dropped "(est.)".
+Covered by `server/test/iuc.test.js`.
 
 ## What
 IUC (annual circulation tax) is currently an estimate. Replace with the exact

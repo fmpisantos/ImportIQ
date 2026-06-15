@@ -7,7 +7,7 @@
 // missing fields listed) rather than silently estimated.
 
 import { calculateISV, normaliseFuel } from './isv.js';
-import { estimateIUC } from './iuc.js';
+import { calculateIUC } from './iuc.js';
 import { assessVat } from './vat.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -113,11 +113,12 @@ export function computeLandedCost(listing, config, opts = {}) {
   }
 
   // --- IUC (annual, shown separately — never added to the total) ---
-  const iuc = estimateIUC({
+  const iuc = calculateIUC({
     displacementCm3: listing.displacementCm3,
     co2GKm: listing.co2GKm,
     firstRegYear: listing.firstRegYear,
     fuelType: listing.fuelType,
+    emissionStandard,
   });
 
   // --- VAT (IVA) on nearly-new imports (PLAN.md §10 — intra-EU correctness) ---
