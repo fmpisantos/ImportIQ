@@ -47,6 +47,20 @@ test('a nearly-new car adds 23% IVA to the landed cost', () => {
   assert.equal(r.totalLandedCostEur, expected);
 });
 
+test('opts.emissionStandard overrides the listing standard and re-costs ISV', () => {
+  // baseListing is WLTP; force NEDC and the environmental component (hence ISV
+  // and the total) must change to the NEDC table's value.
+  const wltp = computeLandedCost(baseListing, CONFIG);
+  const nedc = computeLandedCost(baseListing, CONFIG, { emissionStandard: 'NEDC' });
+  assert.equal(nedc.breakdown.isv.emissionStandard, 'NEDC');
+  assert.notEqual(
+    nedc.breakdown.isv.environmentalComponent,
+    wltp.breakdown.isv.environmentalComponent
+  );
+  const expected = round2(20000 + nedc.breakdown.isv.isv + 600 + 65);
+  assert.equal(nedc.totalLandedCostEur, expected);
+});
+
 test('attachComparison uses the robust market value for the saving', () => {
   const r = computeLandedCost(baseListing, CONFIG);
   const withCmp = attachComparison(r, { marketValueEur: 30000, avgPriceEur: 31000 });

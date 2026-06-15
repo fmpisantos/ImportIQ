@@ -118,6 +118,10 @@ select:disabled { opacity: 0.5; }
 .bd-col li.total { color: var(--text); border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; }
 .bd-col .notes li { color: var(--amber); }
 .chip { font-size: 11px; background: var(--green); color: #04210f; padding: 1px 6px; border-radius: 4px; }
+.std-toggle { font-size: 11px; background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 1px 7px; border-radius: 4px; cursor: pointer; margin-right: 4px; }
+.std-toggle:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.std-toggle.active { background: var(--accent); border-color: var(--accent); color: #04210f; cursor: default; }
+.std-toggle:disabled { opacity: 0.5; cursor: default; }
 .ext { color: var(--accent); font-size: 13px; text-decoration: none; display: inline-block; margin-top: 8px; }
 .mini { color: var(--accent); font-size: 11px; margin-left: 6px; }
 

@@ -96,13 +96,32 @@ export function parseYear(value) {
 }
 
 /**
- * Infer the emission-test standard from the registration year. Scraped sites
- * don't say whether a CO₂ figure is NEDC or WLTP; WLTP became mandatory for
- * newly registered cars from Sept 2018, so 2019+ is effectively WLTP. The flag
- * lets the UI surface that this was assumed (PLAN.md §4).
+ * Infer the emission-test standard from the first-registration date, following
+ * the rule Portuguese customs effectively applies when classifying an import:
+ * WLTP is the homologation standard for passenger cars first registered from
+ * 1 September 2018 (when WLTP became mandatory for all new EU registrations);
+ * cars registered before that carry NEDC CO₂ figures.
+ *
+ * Scraped sites never state which standard a CO₂ figure uses, so this is always
+ * `inferred: true` and the UI lets the user override it per listing (PLAN.md §4).
+ *
+ * @param {number|null} firstRegYear
+ * @param {number|null} [firstRegMonth]  1–12 when known; sharpens the 2018 cut-off
+ * @returns {{ standard: 'WLTP'|'NEDC', inferred: true }}
  */
-export function inferEmissionStandard(firstRegYear) {
-  const standard = firstRegYear != null && firstRegYear >= 2019 ? 'WLTP' : 'NEDC';
+export function inferEmissionStandard(firstRegYear, firstRegMonth = null) {
+  let standard;
+  if (firstRegYear == null) {
+    standard = 'NEDC';
+  } else if (firstRegYear > 2018) {
+    standard = 'WLTP'; // 2019+ is unambiguously WLTP
+  } else if (firstRegYear < 2018) {
+    standard = 'NEDC';
+  } else {
+    // 2018 is the transition year — WLTP only from September. With no month we
+    // lean NEDC (Jan–Aug covers most of the year); either way it stays inferred.
+    standard = firstRegMonth != null && firstRegMonth >= 9 ? 'WLTP' : 'NEDC';
+  }
   return { standard, inferred: true };
 }
 

@@ -39,12 +39,17 @@ export function missingListingFields(listing) {
  *   @param {object} config.byKey       cost_config rows keyed by `key`
  *   @param {string} config.activeTransportMethod  e.g. 'transport.enclosed'
  * @param {object} [opts]              { referenceYear, referenceMonth } — "now",
- *   used only to sharpen the ≤6-month VAT test when the listing has a reg month
+ *   used only to sharpen the ≤6-month VAT test when the listing has a reg month.
+ *   `emissionStandard` ('WLTP'|'NEDC') overrides the listing's inferred standard
+ *   (the UI lets the user confirm which one PT customs would apply).
  * @returns {object} enriched result with cost breakdown + completeness flag
  */
 export function computeLandedCost(listing, config, opts = {}) {
   const { byKey, activeTransportMethod } = config;
   const missing = [];
+
+  // The user-confirmed standard wins over the listing's inferred one; default WLTP.
+  const emissionStandard = opts.emissionStandard ?? listing.emissionStandard ?? 'WLTP';
 
   // --- ISV (real, computed) ---
   // Live-scraped listings can lack CO₂/displacement; computing the tables with
@@ -60,7 +65,7 @@ export function computeLandedCost(listing, config, opts = {}) {
           exempt: false,
           unavailable: true,
           specialRegime: 'none',
-          emissionStandard: listing.emissionStandard ?? 'WLTP',
+          emissionStandard,
           cylinderComponent: null,
           environmentalComponent: null,
           ageReductionRate: 0,
@@ -73,7 +78,7 @@ export function computeLandedCost(listing, config, opts = {}) {
           displacementCm3: listing.displacementCm3,
           co2GKm: listing.co2GKm,
           fuelType: listing.fuelType,
-          emissionStandard: listing.emissionStandard ?? 'WLTP',
+          emissionStandard,
           ageYears: listing.ageYears,
           qualifiesForEvRegime: listing.qualifiesForEvRegime ?? false,
           particleEmissionsGKm: listing.particleEmissionsGKm,

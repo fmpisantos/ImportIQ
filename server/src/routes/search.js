@@ -105,4 +105,51 @@ router.post('/search', async (req, res, next) => {
   }
 });
 
+// Re-cost a single already-computed result under a user-chosen emission standard
+// (WLTP/NEDC). The store serves pre-computed deals, so this is how the UI's
+// per-listing override re-runs just the ISV + verdict without a fresh scrape.
+// Body: { result, emissionStandard }. The PT comparison is reused as-is (the
+// market value doesn't change), only the landed cost and saving are recomputed.
+router.post('/recompute', (req, res, next) => {
+  try {
+    const { result: prior, emissionStandard } = req.body ?? {};
+    const listing = prior?.listing;
+    if (!listing || typeof listing !== 'object') {
+      res.status(400).json({ error: 'result.listing is required' });
+      return;
+    }
+    if (!['WLTP', 'NEDC'].includes(emissionStandard)) {
+      res.status(400).json({ error: 'emissionStandard must be "WLTP" or "NEDC"' });
+      return;
+    }
+
+    const config = buildConfigView();
+    const haircutRow = config.byKey['resale.asking_to_sale_haircut_pct'];
+    const resaleHaircutPct = haircutRow && haircutRow.enabled ? haircutRow.amount_eur : 0;
+    const now = new Date();
+
+    const computed = computeLandedCost(listing, config, {
+      referenceYear: now.getFullYear(),
+      referenceMonth: now.getMonth() + 1,
+      emissionStandard,
+    });
+    let result = attachComparison(computed, prior.comparison ?? null, { resaleHaircutPct });
+
+    // The German-price sanity verdict is run-scoped (needs the other listings as
+    // peers) and the price is unchanged here, so preserve the original flag
+    // rather than recomputing it from a single listing.
+    if (prior.germanPriceSuspicious) {
+      result = {
+        ...result,
+        germanPriceSuspicious: true,
+        germanPriceNotes: prior.germanPriceNotes,
+      };
+    }
+
+    res.json({ result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

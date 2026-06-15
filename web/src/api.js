@@ -20,6 +20,8 @@ async function http(method, path, body) {
 export const api = {
   getBrands: () => http('GET', '/api/brands'),
   runSearch: (filters) => http('POST', '/api/search', filters),
+  recompute: (result, emissionStandard) =>
+    http('POST', '/api/recompute', { result, emissionStandard }),
   getConfig: () => http('GET', '/api/config'),
   updateConfig: (key, patch) => http('PUT', `/api/config/${key}`, patch),
   setActiveTransport: (method) => http('POST', '/api/config/active', { method }),

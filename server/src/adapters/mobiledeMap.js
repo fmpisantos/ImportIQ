@@ -7,6 +7,12 @@
 //   cubicCapacity (ccm), power (kW), co2 (g/km), price.consumerPriceGross (EUR),
 //   detailPageUrl, seller, images.
 
+import { inferEmissionStandard } from './normalize.js';
+
+// Re-exported so the mobile.de mapper's unit tests keep a stable import path;
+// the inference rule itself lives once in normalize.js.
+export { inferEmissionStandard };
+
 // mobile.de fuel enum → the free-form strings our ISV engine's normaliseFuel
 // already understands.
 const FUEL_MAP = {
@@ -38,22 +44,6 @@ export function parseFirstRegistration(value) {
   };
 }
 
-/**
- * Infer the emission-test standard from the first-registration year.
- *
- * mobile.de does not return whether CO₂ is NEDC or WLTP, but WLTP became
- * mandatory for newly registered passenger cars from September 2018, so cars
- * registered 2019+ are effectively WLTP. This is an assumption the user should
- * be able to override in the UI (PLAN.md §4 explicitly calls for prompting when
- * the standard is unknown).
- *
- * @returns {{ standard: 'WLTP'|'NEDC', inferred: true }}
- */
-export function inferEmissionStandard(firstRegYear) {
-  const standard = firstRegYear != null && firstRegYear >= 2019 ? 'WLTP' : 'NEDC';
-  return { standard, inferred: true };
-}
-
 const num = (v) => (v == null || v === '' ? null : Number(v));
 
 /**
@@ -66,7 +56,7 @@ const num = (v) => (v == null || v === '' ? null : Number(v));
 export function mapAd(ad, referenceYear) {
   const { year, month } = parseFirstRegistration(ad.firstRegistration);
   const fuelRaw = ad.fuel ?? ad.fuelType ?? '';
-  const emission = inferEmissionStandard(year);
+  const emission = inferEmissionStandard(year, month);
 
   const priceEur =
     num(ad.price?.consumerPriceGross) ??

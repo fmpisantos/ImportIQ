@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { eur } from '../api.js';
+import { api, eur } from '../api.js';
 
 const SOURCE_LABELS = {
   mobilede: 'mobile.de',
@@ -119,9 +119,36 @@ function PtMarketModal({ comparison, onClose }) {
   );
 }
 
-export default function ResultCard({ result }) {
+export default function ResultCard({ result: incomingResult }) {
   const [open, setOpen] = useState(false);
   const [ptModalOpen, setPtModalOpen] = useState(false);
+  // Local copy so a per-listing emission-standard override re-costs this card in
+  // place. Reset whenever the parent hands us a new result (new search / page).
+  const [result, setResult] = useState(incomingResult);
+  const [recomputing, setRecomputing] = useState(false);
+  const [standardOverridden, setStandardOverridden] = useState(false);
+  const [recomputeError, setRecomputeError] = useState(null);
+  useEffect(() => {
+    setResult(incomingResult);
+    setStandardOverridden(false);
+    setRecomputeError(null);
+  }, [incomingResult]);
+
+  const changeEmissionStandard = async (standard) => {
+    if (recomputing || standard === result.breakdown.isv.emissionStandard) return;
+    setRecomputing(true);
+    setRecomputeError(null);
+    try {
+      const { result: updated } = await api.recompute(result, standard);
+      setResult(updated);
+      setStandardOverridden(true);
+    } catch (e) {
+      setRecomputeError(e.message);
+    } finally {
+      setRecomputing(false);
+    }
+  };
+
   const { listing, breakdown } = result;
   const isv = breakdown.isv;
   const comparison = result.comparison;
@@ -235,6 +262,35 @@ export default function ResultCard({ result }) {
               <ul>
                 <li>Cylinder component: {eur(isv.cylinderComponent)}</li>
                 <li>Environmental ({isv.emissionStandard}): {eur(isv.environmentalComponent)}</li>
+                {!isv.unavailable && (
+                  <li className="emission-standard">
+                    <span className="muted">Emission standard:</span>{' '}
+                    {['WLTP', 'NEDC'].map((std) => (
+                      <button
+                        key={std}
+                        type="button"
+                        className={`std-toggle ${isv.emissionStandard === std ? 'active' : ''}`}
+                        disabled={recomputing}
+                        onClick={() => changeEmissionStandard(std)}
+                        title={`Re-cost ISV using the ${std} environmental table`}
+                      >
+                        {std}
+                      </button>
+                    ))}
+                    {recomputing ? (
+                      <span className="muted"> recomputing…</span>
+                    ) : standardOverridden ? (
+                      <span className="muted"> · confirmed</span>
+                    ) : (
+                      listing.emissionStandardInferred && (
+                        <span className="muted" title="Inferred from the registration date — confirm if you know which standard applies">
+                          {' '}· inferred
+                        </span>
+                      )
+                    )}
+                    {recomputeError && <span className="warn"> · {recomputeError}</span>}
+                  </li>
+                )}
                 <li>Age reduction: {(isv.ageReductionRate * 100).toFixed(0)}%</li>
                 {isv.specialRegime !== 'none' && <li>Regime: {isv.specialRegime}</li>}
                 {isv.dieselSurcharge > 0 && <li>Diesel particle surcharge: {eur(isv.dieselSurcharge)}</li>}

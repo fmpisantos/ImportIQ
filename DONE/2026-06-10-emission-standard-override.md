@@ -1,9 +1,21 @@
 ---
 title: UI override for emission standard (WLTP/NEDC)
 created: 2026-06-10
-status: todo
+status: done
+completed: 2026-06-15
 priority: medium
 ---
+
+> **Outcome:** Two-part fix. (1) `inferEmissionStandard()` now encodes PT's
+> import rule — WLTP from 1 Sep 2018 (uses reg month at the 2018 boundary),
+> still flagged `inferred`. Consolidated the duplicate copy in `mobiledeMap.js`
+> to re-export from `normalize.js`. (2) Per-listing WLTP/NEDC toggle on the
+> result card; a new `POST /api/recompute` endpoint re-costs ISV + verdict under
+> the chosen standard (reuses the existing PT comparison). `computeLandedCost`
+> takes an `opts.emissionStandard` override. Tests added in `normalize.test.js`
+> and `landedCost.test.js`.
+> Known gap: CSV/JSON export reflects the stored (pre-override) result, not a
+> per-card toggle — logged as a follow-up TODO.
 
 ## What
 Let the user override the inferred WLTP/NEDC emission standard per listing in the
