@@ -116,6 +116,35 @@ export function getIngestConfig() {
   };
 }
 
+// --- Automated ISV-table refresh (jobs/refreshIsvTables.js) -----------------
+// Statutory ISV tables change at most once a year via the OE; there is no
+// official API, so the refresh job scrapes several reference pages and only
+// applies a value when ≥2 of them agree (see adapters/isvTablesSource.js). The
+// hardcoded tables in engine/isvTables.js remain the always-available baseline.
+export function getIsvTablesConfig() {
+  // Sources confirmed (2026-06-15) to render their tables server-side and parse.
+  // informador.pt is the authoritative legal text (Código do ISV, art. 7º); the
+  // other two are reference pages. Most other PT ISV pages are JS-rendered and
+  // return nothing to a server fetch (see the gasoline-WLTP-verification TODO).
+  const defaultSources = [
+    'https://informador.pt/legislacao/lexit/codigos/direito-fiscal/codigo-do-isv/capitulo-i-principios-e-regras-gerais-3/artigo-7-o-taxas-normais-automoveis/',
+    'https://ecoimport.pt/isv-2026-novas-regras/',
+    'https://contasconnosco.cofidis.pt/impostos/isv-escaloes-calcular',
+  ];
+  const rawUrls = process.env.ISV_TABLES_SOURCE_URLS;
+  const sourceUrls = rawUrls
+    ? rawUrls.split(',').map((s) => s.trim()).filter(Boolean)
+    : defaultSources;
+
+  return {
+    // Off by default (like the ingest scheduler) — opt in with the env flag.
+    enabled: bool(rt('isv_refresh_enabled', process.env.ENABLE_ISV_TABLE_REFRESH), false),
+    sourceUrls,
+    // Re-check roughly once a year.
+    intervalMs: Number(process.env.ISV_TABLES_REFRESH_INTERVAL_MS ?? 365 * 24 * 60 * 60 * 1000),
+  };
+}
+
 export function getMobiledeConfig() {
   return {
     baseUrl: process.env.MOBILEDE_BASE_URL ?? 'https://services.mobile.de/search-api',

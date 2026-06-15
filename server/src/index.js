@@ -3,7 +3,7 @@ import 'dotenv/config'; // load .env before anything reads process.env
 import express from 'express';
 import cors from 'cors';
 import { getDb } from './db.js';
-import { getDataSource } from './config.js';
+import { getDataSource, getIsvTablesConfig } from './config.js';
 import configRouter from './routes/config.js';
 import settingsRouter from './routes/settings.js';
 import searchRouter from './routes/search.js';
@@ -80,6 +80,40 @@ function startIngestScheduler() {
   scheduleNext();
 }
 
+// In-process refresh of the statutory ISV tables: a check runs at startup and
+// then once per configured interval (~yearly). The job scrapes reference pages
+// and only applies values that ≥2 sources agree on; otherwise the hardcoded
+// baseline stands. Same non-overlap + log-not-fatal discipline as the ingest
+// scheduler. Gated behind getIsvTablesConfig().enabled (env ENABLE_ISV_TABLE_REFRESH).
+function startIsvTableRefresh() {
+  let running = false;
+  const runOnce = async (trigger) => {
+    if (running) return;
+    running = true;
+    try {
+      const { runRefreshIsvTables } = await import('./jobs/refreshIsvTables.js');
+      console.log(`[isv-refresh] starting run (${trigger})`);
+      await runRefreshIsvTables();
+    } catch (err) {
+      console.error('[isv-refresh] run failed:', err);
+    } finally {
+      running = false;
+    }
+  };
+
+  const scheduleNext = () => {
+    const { intervalMs } = getIsvTablesConfig();
+    console.log(`[isv-refresh] next check in ~${(intervalMs / 8.64e7).toFixed(0)} day(s)`);
+    setTimeout(async () => {
+      await runOnce('interval');
+      scheduleNext();
+    }, intervalMs).unref();
+  };
+
+  runOnce('startup');
+  scheduleNext();
+}
+
 // The scheduler (incl. its startup run) only runs when explicitly enabled, so a
 // local `npm run dev` never kicks off an ingest pass on every boot. Set
 // ENABLE_INGEST_SCHEDULER=true (or 1) in production to turn it on.
@@ -91,5 +125,10 @@ app.listen(PORT, () => {
     startIngestScheduler();
   } else {
     console.log('[ingest] scheduler disabled (set ENABLE_INGEST_SCHEDULER=true to enable)');
+  }
+  if (getIsvTablesConfig().enabled) {
+    startIsvTableRefresh();
+  } else {
+    console.log('[isv-refresh] disabled (set ENABLE_ISV_TABLE_REFRESH=true to enable)');
   }
 });

@@ -7,11 +7,11 @@
 
 import {
   CYLINDER_BRACKETS,
-  ENVIRONMENTAL_BRACKETS,
   AGE_REDUCTION_BRACKETS,
   DIESEL_PARTICLE_SURCHARGE_EUR,
   MINIMUM_ISV_EUR,
 } from './isvTables.js';
+import { getEnvironmentalBrackets } from './isvTableStore.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -35,9 +35,9 @@ export function cylinderComponent(displacementCm3) {
   return round2(displacementCm3 * b.ratePerCm3 - b.deduction);
 }
 
-export function environmentalComponent(co2GKm, tableFuel, standard) {
+export function environmentalComponent(co2GKm, tableFuel, standard, tables = getEnvironmentalBrackets()) {
   const key = `${tableFuel}.${standard}`;
-  const brackets = ENVIRONMENTAL_BRACKETS[key];
+  const brackets = tables[key];
   if (!brackets) {
     throw new Error(`No environmental table for "${key}"`);
   }
