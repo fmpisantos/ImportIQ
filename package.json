@@ -11,6 +11,7 @@
     "dev": "npm-run-all --parallel dev:server dev:web",
     "dev:server": "npm run dev --workspace server",
     "dev:web": "npm run dev --workspace web",
+    "dev-bruno": "PORT=8002 BASE_PATH=/bruno/importiq IMPORTIQ_DB=data/importiq-bruno.db WEB_PORT=3002 WEB_BASE=/bruno/importiq/ API_TARGET=http://localhost:8002 npm-run-all --parallel dev:server dev:web",
     "build": "npm run build --workspace web",
     "start": "npm run start --workspace server",
     "ingest": "npm run ingest --workspace server",
