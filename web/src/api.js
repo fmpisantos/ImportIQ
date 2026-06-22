@@ -25,6 +25,9 @@ export const api = {
   getConfig: () => http('GET', '/api/config'),
   updateConfig: (key, patch) => http('PUT', `/api/config/${key}`, patch),
   setActiveTransport: (method) => http('POST', '/api/config/active', { method }),
+  matchVehicle: (q, limit = 8) =>
+    http('GET', `/api/vehicles/match?q=${encodeURIComponent(q)}&limit=${limit}`),
+  getVehicleStats: () => http('GET', '/api/vehicles/stats'),
   getSettings: () => http('GET', '/api/settings'),
   updateSettings: (updates, clear = []) => http('PUT', '/api/settings', { updates, clear }),
   testConnection: () => http('POST', '/api/settings/test'),

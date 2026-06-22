@@ -15,6 +15,7 @@ import { fetchComparables as fetchOlx } from './olxpt.js';
 import { fetchComparables as fetchStandvirtual } from './standvirtual.js';
 import { comparisonCriteria, finalizeComparison } from '../ptMarketClient.js';
 import { getPtSourcesConfig } from '../../config.js';
+import { resolveVehicle } from '../../engine/vehicleResolver.js';
 
 // Source name → raw-comparable fetcher. Each returns
 // { items, searchUrl, criteria, source }.
@@ -68,16 +69,28 @@ function dedupe(items) {
  *   sources[] per-source breakdown
  */
 export async function getComparisonCombined(listing, opts = {}) {
+  // Resolve the listing's free-text brand+model to the canonical catalog
+  // identity (the fuzzy matcher) and search Portugal for THAT car — so the
+  // brand+model shown on the card is the same brand+model we look up in PT. A
+  // confident match renames the subject; a weak one leaves the raw strings.
+  // `resolve: false` (used by the source-merge unit tests) skips this entirely.
+  const resolved =
+    opts.resolve === false ? null : resolveVehicle(listing.brand, listing.model, opts);
+  const subject = resolved
+    ? { ...listing, brand: resolved.brand, model: resolved.model }
+    : listing;
+
   // Trust gate: without a model we can only match brand+year, which drags in
   // unrelated cars. Don't even fetch — return an empty, explicitly-unreliable
   // comparison so attachComparison withholds the verdict (verdict → 'unknown')
   // instead of presenting a brand-only average as the PT market value.
-  if (!listing.model || !String(listing.model).trim()) {
-    const criteria = comparisonCriteria(listing);
+  if (!subject.model || !String(subject.model).trim()) {
+    const criteria = comparisonCriteria(subject);
     return {
-      ...finalizeComparison({ items: [], source: 'pt', criteria, listing }),
+      ...finalizeComparison({ items: [], source: 'pt', criteria, listing: subject }),
       searchUrl: null,
       sources: [],
+      resolvedVehicle: resolved ?? null,
     };
   }
 
@@ -87,7 +100,7 @@ export async function getComparisonCombined(listing, opts = {}) {
     .filter(([, fn]) => typeof fn === 'function');
 
   const settled = await Promise.allSettled(
-    fetchers.map(([, fn]) => fn(listing, opts))
+    fetchers.map(([, fn]) => fn(subject, opts))
   );
 
   const perSource = [];
@@ -107,11 +120,11 @@ export async function getComparisonCombined(listing, opts = {}) {
     }
   });
 
-  const criteria = comparisonCriteria(listing);
+  const criteria = comparisonCriteria(subject);
   const items = dedupe(merged);
   const sourceLabel =
     perSource.filter((s) => s.sampleSize > 0).map((s) => s.source).join(' + ') || 'pt';
-  const final = finalizeComparison({ items, source: sourceLabel, criteria, listing });
+  const final = finalizeComparison({ items, source: sourceLabel, criteria, listing: subject });
 
   // Primary link: prefer OLX's search URL (most reliable), else the first that
   // produced one — so the popover's "open this search" always points somewhere.
@@ -119,5 +132,10 @@ export async function getComparisonCombined(listing, opts = {}) {
     perSource.find((s) => s.source === 'olx.pt' && s.searchUrl) ??
     perSource.find((s) => s.searchUrl);
 
-  return { ...final, searchUrl: primary?.searchUrl ?? null, sources: perSource };
+  return {
+    ...final,
+    searchUrl: primary?.searchUrl ?? null,
+    sources: perSource,
+    resolvedVehicle: resolved ?? null,
+  };
 }

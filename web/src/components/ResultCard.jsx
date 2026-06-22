@@ -64,6 +64,17 @@ function PtMarketModal({ comparison, onClose }) {
         <p className="muted">
           Based on {comparison.sampleSize} listings ({comparison.source}).
         </p>
+        {comparison.resolvedVehicle && (
+          <p className="muted">
+            Searched PT for:{' '}
+            <strong>
+              {comparison.resolvedVehicle.brand} › {comparison.resolvedVehicle.model}
+            </strong>{' '}
+            <span className="small">
+              (matched from the listing, {comparison.resolvedVehicle.confidence} confidence)
+            </span>
+          </p>
+        )}
         {comparison.marketValueEur != null &&
           comparison.marketValueMethod &&
           comparison.marketValueMethod !== 'none' && (
@@ -152,6 +163,14 @@ export default function ResultCard({ result: incomingResult }) {
   const { listing, breakdown } = result;
   const isv = breakdown.isv;
   const comparison = result.comparison;
+  // The canonical brand+model the fuzzy matcher resolved the listing to — and
+  // what the PT market was searched under. Surfaced only when it differs from
+  // the raw source strings, so it reads as "we looked PT up as this".
+  const matched = comparison?.resolvedVehicle;
+  const matchedDiffers =
+    matched &&
+    (matched.brand.toLowerCase() !== String(listing.brand ?? '').toLowerCase() ||
+      matched.model.toLowerCase() !== String(listing.model ?? '').toLowerCase());
   const hasPtDetails =
     comparison != null &&
     (comparison.sampleListings?.length > 0 || comparison.searchUrl != null);
@@ -166,6 +185,14 @@ export default function ResultCard({ result: incomingResult }) {
             {listing.brand} {listing.model} · {listing.year}
             {listing.source && (
               <span className="badge source">{SOURCE_LABELS[listing.source] ?? listing.source}</span>
+            )}
+            {matchedDiffers && (
+              <span
+                className="badge matched"
+                title={`PT market searched as ${matched.brand} › ${matched.model} (${matched.confidence} confidence)`}
+              >
+                ≈ {matched.brand} {matched.model}
+              </span>
             )}
           </div>
           <div className="result-sub">

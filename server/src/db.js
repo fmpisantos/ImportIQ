@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { SEED_COST_CONFIG, SEED_ACTIVE_SETTINGS } from './config/seed.js';
+import { loadVehicleCatalog } from './data/vehicleCatalog.loader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'data');
@@ -110,6 +111,19 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_deals_brand   ON deals(status, brand, model);
     CREATE INDEX IF NOT EXISTS idx_deals_price   ON deals(status, price_eur);
     CREATE INDEX IF NOT EXISTS idx_deals_enrich  ON deals(enrich_status);
+
+    -- Vehicle reference catalog (brand → model → submodels) used by the fuzzy
+    -- matcher. One row per (brand, model); submodels + brand aliases are stored
+    -- as JSON. Seeded from data/vehicleCatalog.js, re-synced on boot so edits to
+    -- the source file land in the DB (see seedVehicleCatalog).
+    CREATE TABLE IF NOT EXISTS vehicle_catalog (
+      brand     TEXT NOT NULL,
+      model     TEXT NOT NULL,
+      aliases   TEXT NOT NULL DEFAULT '[]', -- JSON array of brand aliases
+      submodels TEXT NOT NULL DEFAULT '[]', -- JSON array of submodel names
+      PRIMARY KEY (brand, model)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vehicle_brand ON vehicle_catalog(brand);
   `);
 }
 
@@ -132,6 +146,42 @@ function seed(db) {
     for (const r of rows) insertSetting.run(r);
   });
   insertSettings(SEED_ACTIVE_SETTINGS);
+
+  seedVehicleCatalog(db);
+}
+
+// Sync the vehicle catalog (built from public datasets, or the curated fallback)
+// into SQLite. Unlike the cost config (user-editable, never clobbered), this is
+// reference data fully owned by the source file: we replace the whole table when
+// the content changes (tracked by a hash in active_settings), so editing/rebuilding
+// the catalog and rebooting keeps the table authoritative and prunes stale rows —
+// while a no-op boot does zero writes.
+function seedVehicleCatalog(db) {
+  const { catalog } = loadVehicleCatalog();
+  const hash = createHash('sha1').update(JSON.stringify(catalog)).digest('hex').slice(0, 16);
+  const prev = db.prepare("SELECT value FROM active_settings WHERE key = 'vehicle_catalog.hash'").get();
+  if (prev?.value === hash) return; // unchanged — nothing to do
+
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO vehicle_catalog (brand, model, aliases, submodels) VALUES (@brand, @model, @aliases, @submodels)'
+  );
+  db.transaction(() => {
+    db.prepare('DELETE FROM vehicle_catalog').run();
+    for (const { brand, aliases = [], models = {} } of catalog) {
+      for (const [model, submodels] of Object.entries(models)) {
+        insert.run({
+          brand,
+          model,
+          aliases: JSON.stringify(aliases),
+          submodels: JSON.stringify(submodels ?? []),
+        });
+      }
+    }
+    db.prepare(
+      "INSERT INTO active_settings (key, value) VALUES ('vehicle_catalog.hash', ?) " +
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(hash);
+  })();
 }
 
 // --- Read helpers -----------------------------------------------------------
@@ -141,6 +191,33 @@ export function getAllCostConfig() {
     .prepare('SELECT * FROM cost_config ORDER BY category, key')
     .all()
     .map((r) => ({ ...r, enabled: !!r.enabled }));
+}
+
+/**
+ * The vehicle catalog in the matcher's expected shape:
+ * [{ brand, aliases: string[], models: { [model]: submodels[] } }], rebuilt from
+ * the per-(brand,model) rows. Read fresh; callers cache the built index.
+ */
+export function getVehicleCatalog() {
+  const rows = getDb()
+    .prepare('SELECT brand, model, aliases, submodels FROM vehicle_catalog ORDER BY brand, model')
+    .all();
+  const byBrand = new Map();
+  for (const r of rows) {
+    if (!byBrand.has(r.brand)) {
+      byBrand.set(r.brand, { brand: r.brand, aliases: safeJson(r.aliases, []), models: {} });
+    }
+    byBrand.get(r.brand).models[r.model] = safeJson(r.submodels, []);
+  }
+  return [...byBrand.values()];
+}
+
+function safeJson(s, fallback) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return fallback;
+  }
 }
 
 export function getActiveSettings() {

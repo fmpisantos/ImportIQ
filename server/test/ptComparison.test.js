@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getComparisonCombined } from '../src/adapters/direct/ptComparison.js';
+import { buildVehicleIndex } from '../src/engine/vehicleMatch.js';
 
 // One fetchImpl that serves both sources, branching on the URL: OLX.pt hits its
 // JSON API; Standvirtual returns an HTML page with __NEXT_DATA__.
@@ -51,7 +52,7 @@ test('getComparisonCombined merges comparables from both sources', async () => {
       ? { ok: true, json: async () => olxPayload }
       : { ok: true, text: async () => svPage };
 
-  const out = await getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1 });
+  const out = await getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1, resolve: false });
 
   assert.equal(out.sampleSize, 4); // 2 OLX + 2 Standvirtual
   assert.equal(out.avgPriceEur, 11500); // mean of 10/11/12/13k
@@ -69,7 +70,7 @@ test('getComparisonCombined survives one source failing and reports it', async (
     return { ok: false, status: 403, text: async () => 'blocked' }; // Standvirtual blocked
   };
 
-  const out = await getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1 });
+  const out = await getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1, resolve: false });
 
   assert.equal(out.sampleSize, 1); // only OLX contributed
   assert.equal(out.avgPriceEur, 10000);
@@ -87,7 +88,7 @@ test('getComparisonCombined dedupes the same car appearing in two sources', asyn
       ? { ok: true, json: async () => olxPayload }
       : { ok: true, text: async () => svPage };
 
-  const out = await getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1 });
+  const out = await getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1, resolve: false });
   assert.equal(out.sampleSize, 1); // deduped by URL
 });
 
@@ -111,11 +112,47 @@ test('getComparisonCombined dedupes a cross-posted car with DIFFERENT urls per s
       ? { ok: true, json: async () => olxPayload }
       : { ok: true, text: async () => svPage };
 
-  return getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1 }).then(
+  return getComparisonCombined(LISTING, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1, resolve: false }).then(
     (out) => {
       assert.equal(out.sampleSize, 3); // 2 unique + 1 cross-posted dup collapsed
     }
   );
+});
+
+test('getComparisonCombined searches PT under the canonical (matched) brand+model', async () => {
+  // The card shows a typo'd brand and a designation model; the fuzzy matcher
+  // resolves it to the catalog identity, and PT is searched for THAT car.
+  const index = buildVehicleIndex([
+    { brand: 'Volkswagen', aliases: ['vw'], models: { Golf: ['GTI'], Polo: [] } },
+  ]);
+  const typed = { brand: 'vw', model: 'gold gti', year: 2019, mileageKm: 60000, fuelType: 'Petrol' };
+
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(String(url));
+    return String(url).includes('olx.pt')
+      ? { ok: true, json: async () => ({ data: [] }) }
+      : { ok: true, text: async () => svHtml([]) };
+  };
+
+  const out = await getComparisonCombined(typed, {
+    sources: ['olx', 'standvirtual'],
+    fetchImpl,
+    maxPages: 1,
+    index, // resolve against the stub catalog, not the generated one
+  });
+
+  // The matched identity is surfaced for the UI…
+  assert.deepEqual(
+    { brand: out.resolvedVehicle.brand, model: out.resolvedVehicle.model },
+    { brand: 'Volkswagen', model: 'Golf' }
+  );
+  // …and it — not the raw "vw"/"gold gti" — is what drove the PT queries.
+  const olxUrl = urls.find((u) => u.includes('olx.pt'));
+  const svUrl = urls.find((u) => !u.includes('olx.pt'));
+  assert.ok(olxUrl.includes('query=Golf'), `OLX query should be the canonical model: ${olxUrl}`);
+  assert.ok(svUrl.includes('/carros/volkswagen'), `SV should search the canonical brand: ${svUrl}`);
+  assert.ok(svUrl.toLowerCase().includes('golf'), `SV should narrow to the canonical model: ${svUrl}`);
 });
 
 test('getComparisonCombined refuses to compare (and does not fetch) when the model is unknown', async () => {
@@ -128,7 +165,7 @@ test('getComparisonCombined refuses to compare (and does not fetch) when the mod
   };
   const noModel = { brand: 'Ford', model: null, year: 2026, mileageKm: 10, fuelType: 'Petrol' };
 
-  const out = await getComparisonCombined(noModel, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1 });
+  const out = await getComparisonCombined(noModel, { sources: ['olx', 'standvirtual'], fetchImpl, maxPages: 1, resolve: false });
 
   assert.equal(fetched, false, 'must not hit any PT source without a model');
   assert.equal(out.reliable, false);

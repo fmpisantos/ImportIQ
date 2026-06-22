@@ -8,6 +8,7 @@ import configRouter from './routes/config.js';
 import settingsRouter from './routes/settings.js';
 import searchRouter from './routes/search.js';
 import exportRouter from './routes/export.js';
+import vehiclesRouter from './routes/vehicles.js';
 
 const PORT = process.env.PORT ?? 3001;
 // Routes are mounted under a base path so the app sits behind the Caddy reverse
@@ -24,6 +25,7 @@ app.use(`${BASE_PATH}/api/config`, configRouter);
 app.use(`${BASE_PATH}/api/settings`, settingsRouter);
 app.use(`${BASE_PATH}/api`, searchRouter); // exposes /api/search and /api/brands
 app.use(`${BASE_PATH}/api/export`, exportRouter);
+app.use(`${BASE_PATH}/api/vehicles`, vehiclesRouter);
 
 // Centralised error handler.
 // eslint-disable-next-line no-unused-vars
