@@ -1,24 +1,21 @@
 {
   "name": "importiq",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Car import bot: search mobile.de, compute Portuguese landed cost, compare against the PT market.",
+  "description": "Find used cars in Germany, compute the Portuguese landed cost, compare to the PT market.",
+  "type": "module",
   "workspaces": [
+    "shared",
     "server",
-    "web"
+    "client"
   ],
   "scripts": {
-    "dev": "npm-run-all --parallel dev:server dev:web",
+    "dev": "npm run dev --workspace server & npm run dev --workspace client",
     "dev:server": "npm run dev --workspace server",
-    "dev:web": "npm run dev --workspace web",
-    "build": "npm run build --workspace web",
-    "start": "npm run start --workspace server",
-    "ingest": "npm run ingest --workspace server",
-    "recompute": "npm run recompute --workspace server",
-    "test": "npm run test --workspace server"
-  },
-  "devDependencies": {
-    "npm-run-all": "^4.1.5"
+    "dev:client": "npm run dev --workspace client",
+    "build": "npm run build --workspace shared && npm run build --workspace server && npm run build --workspace client",
+    "test": "npm run test --workspace server",
+    "typecheck": "npm run typecheck --workspace shared && npm run typecheck --workspace server && npm run typecheck --workspace client"
   },
   "engines": {
     "node": ">=20"

@@ -1,12 +1,23 @@
 node_modules/
 dist/
+build/
 *.log
+
+# Local data / SQLite store
+server/data/*.db
+server/data/*.db-*
+server/data/*.bak-*
+
+# Env
 .env
 .env.local
-.DS_Store
 
-# SQLite data store (generated at runtime)
-server/data/*.db
-server/data/*.db-journal
-server/data/*.db-wal
-server/data/*.db-shm
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.tsbuildinfo
+
+# Tooling caches
+.playwright-mcp/
+coverage/
