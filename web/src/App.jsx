@@ -2,6 +2,7 @@ import { NavLink, Route, Routes } from 'react-router-dom';
 import SearchPage from './pages/SearchPage.jsx';
 import ConfigPage from './pages/ConfigPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
+import MatchPage from './pages/MatchPage.jsx';
 
 export default function App() {
   return (
@@ -13,6 +14,9 @@ export default function App() {
         <nav>
           <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
             Search
+          </NavLink>
+          <NavLink to="/matcher" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Matcher
           </NavLink>
           <NavLink to="/config" className={({ isActive }) => (isActive ? 'active' : '')}>
             Configuration
@@ -26,6 +30,7 @@ export default function App() {
       <main>
         <Routes>
           <Route path="/" element={<SearchPage />} />
+          <Route path="/matcher" element={<MatchPage />} />
           <Route path="/config" element={<ConfigPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>

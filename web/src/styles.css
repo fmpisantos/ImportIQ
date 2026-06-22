@@ -94,6 +94,7 @@ select:disabled { opacity: 0.5; }
 .badge.premium { background: rgba(255,93,93,0.15); color: var(--red); }
 .badge.incomplete { background: rgba(245,166,35,0.15); color: var(--amber); }
 .badge.source { font-size: 11px; font-weight: 600; padding: 2px 7px; margin-left: 8px; background: rgba(255,255,255,0.08); color: var(--muted, #9aa); vertical-align: middle; }
+.badge.matched { font-size: 11px; font-weight: 600; padding: 2px 7px; margin-left: 8px; background: rgba(79,140,255,0.14); color: var(--accent, #4f8cff); vertical-align: middle; cursor: help; }
 
 .badge.caution { background: rgba(245,166,35,0.15); color: var(--amber); margin-left: 6px; }
 
@@ -230,6 +231,49 @@ select:disabled { opacity: 0.5; }
 .settings-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .settings-actions button:disabled { opacity: 0.6; cursor: default; }
 .flash.persist { animation: none; }
+
+/* ---- Vehicle Matcher ---- */
+.match-input {
+  width: 100%; box-sizing: border-box; margin: 8px 0 14px;
+  padding: 14px 16px; font-size: 18px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text);
+}
+.match-input:focus { outline: none; border-color: var(--accent); }
+.match-examples { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 18px; }
+.match-examples .pill { cursor: pointer; }
+
+.match-best { border-left: 3px solid var(--accent); }
+.match-best-title { font-size: 24px; font-weight: 700; margin: 6px 0 10px; }
+.match-arrow { color: var(--muted); font-weight: 400; }
+.match-sub { color: var(--accent); }
+.match-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.match-conf {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.match-conf.high { background: rgba(46, 204, 113, 0.18); color: var(--green); }
+.match-conf.medium { background: rgba(245, 166, 35, 0.18); color: var(--amber); }
+.match-conf.low { background: rgba(255, 93, 93, 0.16); color: var(--red); }
+
+.match-table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 14px; }
+.match-table th {
+  text-align: left; color: var(--muted); font-weight: 600; font-size: 12px;
+  padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.match-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+.match-table tr.is-best td { background: rgba(79, 140, 255, 0.07); }
+
+.score-bar {
+  position: relative; display: inline-block; width: 120px; height: 18px;
+  background: var(--panel-2); border-radius: 4px; overflow: hidden; vertical-align: middle;
+}
+.score-bar-fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); opacity: 0.55; }
+.score-bar-num {
+  position: relative; display: block; text-align: center; line-height: 18px;
+  font-size: 11px; font-weight: 600; color: var(--text);
+}
 
 /* ---- Mobile ---- */
 @media (max-width: 760px) {
