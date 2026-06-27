@@ -67,6 +67,16 @@ const FUEL_KEYWORDS = [
 export function canonicalFuel(raw) {
   if (raw == null || raw === '') return null;
   const s = deaccent(raw);
+
+  // A COMBINED electric+combustion label ("Elektro/Diesel", "Elektro/Benzin" —
+  // how AS24 tags plug-in hybrids) is a PHEV, NOT a pure EV. Without this it
+  // matches the Electric keyword first and wrongly takes the €0 ISV exemption a
+  // plug-in hybrid is not entitled to (it owes ISV on its combustion engine,
+  // reduced only if it meets the range/CO₂ thresholds). Caught before the loop.
+  const hasElectric = /electric|eletric|elektro|elettric|bev|\bev\b/i.test(s);
+  const hasCombustion = /diesel|gasoleo|benzin|benzina|petrol|gasolin|essence|lpg|gpl|cng|erdgas/i.test(s);
+  if (hasElectric && hasCombustion) return 'PHEV';
+
   for (const [label, re] of FUEL_KEYWORDS) {
     if (re.test(s)) return label;
   }
@@ -93,6 +103,62 @@ export function parseYear(value) {
   if (typeof value === 'number' && value > 1900 && value < 3000) return value;
   const m = String(value).match(/(19|20)\d{2}/);
   return m ? Number(m[0]) : null;
+}
+
+/**
+ * Pull the 1–12 registration MONTH out of the common shapes a source carries it
+ * in: "09-2008" / "09/2008" (AS24 search card), "09/2008" (detail), "2008-09-01"
+ * / "2008-09" (ISO), a Date, or an epoch number. Returns null for a bare year
+ * ("2026") or anything monthless — the VAT ≤6-month test and the 2018 WLTP
+ * boundary both need a real month, so we never guess one. Pure.
+ *
+ * @param {*} value
+ * @returns {number|null} 1–12, or null
+ */
+export function parseRegMonth(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return value.getUTCMonth() + 1;
+  if (typeof value === 'number') {
+    // Only a bare 1–12 is an unambiguous month; a bare year (2026) carries no
+    // month, so don't reinterpret it as an epoch/date — return null.
+    return Number.isInteger(value) && value >= 1 && value <= 12 ? value : null;
+  }
+  const s = String(value).trim();
+  // MM-YYYY / MM/YYYY (month first) — AS24's card + detail formats.
+  let m = s.match(/^(\d{1,2})[-/.](\d{4})$/);
+  if (m) {
+    const mo = Number(m[1]);
+    return mo >= 1 && mo <= 12 ? mo : null;
+  }
+  // YYYY-MM / YYYY-MM-DD / YYYY.MM (year first) — ISO shapes.
+  m = s.match(/^\d{4}[-/.](\d{1,2})\b/);
+  if (m) {
+    const mo = Number(m[1]);
+    return mo >= 1 && mo <= 12 ? mo : null;
+  }
+  return null;
+}
+
+/**
+ * Whether a PHEV/hybrid meets Portugal's reduced-ISV regime thresholds. The only
+ * well-defined statutory case is the PHEV: a plug-in hybrid with an electric
+ * range ≥ 50 km AND official CO₂ < 50 g/km is taxed at the reduced (25%) regime
+ * (CISV art. 8/9). Returns false when the data needed to prove it is absent — we
+ * never grant the discount on a guess (it would understate the tax). Pure.
+ *
+ * @param {string} canonicalFuelBucket  'phev' | 'hybrid' | … (see normaliseFuel)
+ * @param {number|null} electricRangeKm
+ * @param {number|null} co2GKm
+ * @returns {boolean}
+ */
+export function qualifiesForReducedEvRegime(canonicalFuelBucket, electricRangeKm, co2GKm) {
+  if (canonicalFuelBucket !== 'phev') return false;
+  return (
+    electricRangeKm != null &&
+    co2GKm != null &&
+    electricRangeKm >= 50 &&
+    co2GKm < 50
+  );
 }
 
 /**

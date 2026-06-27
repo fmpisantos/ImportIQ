@@ -34,6 +34,33 @@ export function missingListingFields(listing) {
 }
 
 /**
+ * Tax inputs that a *detail-page* fetch can still fill but which a listing can be
+ * "complete" (costable) without — they refine the ISV rather than block it:
+ *
+ *   - diesel particle emissions → the €500 particulate surcharge (CISV). Without
+ *     it the surcharge is silently omitted, UNDER-stating a non-DPF diesel's ISV.
+ *   - PHEV electric range → the reduced (25%) ISV regime. Without it a qualifying
+ *     plug-in is taxed at the full rate, OVER-stating its ISV ~4×.
+ *
+ * Returned so the enrichment layer fetches the detail page for these cars even
+ * when CO₂/displacement already came off the search card (which would otherwise
+ * short-circuit enrichment). Kept SEPARATE from missingListingFields so a missing
+ * refinement never marks a result `incomplete`. Empty ⇒ no detail fetch needed.
+ *
+ * @param {object} listing  normalised listing
+ * @returns {string[]} e.g. ['listing.particleEmissionsGKm']
+ */
+export function missingTaxRefinements(listing) {
+  const fuel = normaliseFuel(listing.fuelType);
+  const missing = [];
+  if (fuel === 'diesel' && listing.particleEmissionsGKm == null)
+    missing.push('listing.particleEmissionsGKm');
+  if (fuel === 'phev' && listing.electricRangeKm == null)
+    missing.push('listing.electricRangeKm');
+  return missing;
+}
+
+/**
  * @param {object} listing            Normalised mobile.de listing
  * @param {object} config             Result of buildConfigView() from db layer:
  *   @param {object} config.byKey       cost_config rows keyed by `key`

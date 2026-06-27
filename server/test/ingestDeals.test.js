@@ -37,7 +37,8 @@ const { getDb, getDeal, getDealsPage, updateCostConfig } = await import('../src/
 
 // --- Fake AutoScout24 / OLX surface -----------------------------------------
 
-// One full search card (CO₂ + displacement present → no detail fetch needed).
+// One full search card (CO₂ + displacement present). Being a diesel it still
+// gets ONE detail fetch to resolve the particulate surcharge (hasParticleFilter).
 const cardComplete = {
   id: 'a',
   url: '/angebote/a',
@@ -80,7 +81,7 @@ const html = (status, body) => ({
 });
 
 let detailBFails = true; // run 1: B's detail fetch is blocked; later runs succeed
-const fetchCounts = { search: 0, detailB: 0, detailC: 0, olx: 0 };
+const fetchCounts = { search: 0, detailA: 0, detailB: 0, detailC: 0, olx: 0 };
 let realFetch;
 
 before(() => {
@@ -88,10 +89,16 @@ before(() => {
   realFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
+    if (u.includes('/angebote/a')) {
+      // Diesel with card CO₂/displacement — detail fetch only resolves the
+      // particulate surcharge. A DPF-equipped diesel ⇒ no surcharge.
+      fetchCounts.detailA++;
+      return html(200, nextData({ props: { pageProps: { listingDetails: { vehicle: { hasParticleFilter: true } } } } }));
+    }
     if (u.includes('/angebote/b')) {
       fetchCounts.detailB++;
       if (detailBFails) return html(403, 'denied');
-      return html(200, nextData({ props: { pageProps: { listingDetails: { vehicle: { co2emissionInGramPerKmWithFallback: { raw: 115 }, rawDisplacementInCCM: 1995 } } } } }));
+      return html(200, nextData({ props: { pageProps: { listingDetails: { vehicle: { co2emissionInGramPerKmWithFallback: { raw: 115 }, rawDisplacementInCCM: 1995, hasParticleFilter: true } } } } }));
     }
     if (u.includes('/angebote/c')) {
       fetchCounts.detailC++;

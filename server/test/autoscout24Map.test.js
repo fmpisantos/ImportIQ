@@ -43,3 +43,23 @@ test('mapListing recovers a model from variant when model/modelGroup are empty',
   assert.equal(listing.fuelType, 'Petrol');
   assert.equal(listing.transmission, 'Manual');
 });
+
+test('mapListing captures the registration MONTH from the card ("09-2008")', () => {
+  const card = {
+    id: 'm1',
+    vehicle: { make: 'BMW', model: '320', fuel: 'Diesel' },
+    tracking: { firstRegistration: '09-2008', price: '9000' },
+  };
+  const listing = mapListing(card, 2026);
+  assert.equal(listing.firstRegYear, 2008);
+  assert.equal(listing.firstRegMonth, 9); // was hardcoded null before
+});
+
+test('mapListing leaves firstRegMonth null when the card states only a year', () => {
+  const card = {
+    id: 'm2',
+    vehicle: { make: 'BMW', model: '320', fuel: 'Diesel' },
+    tracking: { firstRegistration: '2008', price: '9000' },
+  };
+  assert.equal(mapListing(card, 2026).firstRegMonth, null);
+});

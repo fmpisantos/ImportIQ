@@ -23,7 +23,16 @@ import {
 } from './direct/autoscout24.js';
 import { searchSiteApify } from './apifySearch.js';
 import { searchListingsViaOfficialApi } from './mobilede.js';
-import { missingListingFields } from '../engine/landedCost.js';
+import { missingListingFields, missingTaxRefinements } from '../engine/landedCost.js';
+
+/** An AS24 listing whose detail page could fill a required field OR a tax refinement. */
+function needsDetailFetch(l) {
+  return (
+    l.source === 'autoscout24' &&
+    !!l.url &&
+    (missingListingFields(l).length > 0 || missingTaxRefinements(l).length > 0)
+  );
+}
 
 // A listing's published specs are immutable — cache enriched details for long.
 const DETAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -126,30 +135,42 @@ export async function enrichOneCached(listing, { now = Date.now(), fetchBudget =
     };
   }
 
-  // Only a missing-field car with a detail page actually spends a live fetch;
-  // guard the budget around that case so we don't defer cars we wouldn't fetch.
+  // Only a car a detail fetch could actually improve (missing required field or
+  // tax refinement) spends a fetch; guard the budget around that case.
   const missing = missingListingFields(listing);
-  const willFetch = missing.length > 0 && !!listing.url;
+  const willFetch = (missing.length > 0 || missingTaxRefinements(listing).length > 0) && !!listing.url;
   if (willFetch && fetchBudget && !fetchBudget.tryConsume()) {
     return { listing, enrichStatus: 'enrich_pending', missingFields: missing };
   }
 
   const result = await enrichListing(listing);
   if (result.enrichStatus !== 'enrich_pending') {
-    const { co2GKm, powerKw, displacementCm3 } = result.listing;
-    setCached('listings_cache', key, { co2GKm, powerKw, displacementCm3 }, now);
+    // Persist every field the detail fetch can fill — not just CO₂ — so a cache
+    // hit reconstructs the full ISV/VAT input set (month, particles, EV regime).
+    const {
+      co2GKm, powerKw, displacementCm3,
+      firstRegMonth, electricRangeKm, particleEmissionsGKm, qualifiesForEvRegime,
+    } = result.listing;
+    setCached(
+      'listings_cache',
+      key,
+      { co2GKm, powerKw, displacementCm3, firstRegMonth, electricRangeKm, particleEmissionsGKm, qualifiesForEvRegime },
+      now
+    );
   }
   return result;
 }
 
 async function enrichMissingCo2(listings, cfg, now) {
   // Only AutoScout24 listings can be enriched from their detail page; don't
-  // let other sources' gaps eat the enrich budget.
-  const needs = listings.filter((l) => l.co2GKm == null && l.url && l.source === 'autoscout24');
+  // let other sources' gaps eat the enrich budget. A car qualifies when the
+  // detail page could fill a required field (CO₂/displacement) or a tax
+  // refinement (diesel particles, PHEV range).
+  const needs = listings.filter(needsDetailFetch);
   const targets = needs.slice(0, cfg.enrichLimit);
   if (needs.length > targets.length) {
     console.warn(
-      `[direct] ${needs.length} listings missing CO₂; enriching first ${targets.length} (DIRECT_ENRICH_LIMIT)`
+      `[direct] ${needs.length} listings need detail enrichment; enriching first ${targets.length} (DIRECT_ENRICH_LIMIT)`
     );
   }
 
