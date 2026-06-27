@@ -22,8 +22,8 @@ import {
 import { missingListingFields } from '../../engine/landedCost.js';
 
 const BASE_URL = 'https://www.autoscout24.de';
-const PAGE_SIZE = 20; // AS24 serves 20 listings per search page
-const MAX_PAGES = 20; // AS24 hard-caps pagination at 20 pages
+export const PAGE_SIZE = 20; // AS24 serves 20 listings per search page
+export const MAX_PAGES = 20; // AS24 hard-caps pagination at 20 pages
 
 const HEADERS = {
   'User-Agent':
@@ -226,6 +226,41 @@ function listingsFrom(html) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Fetch ONE AutoScout24 search page and return its mapped listings plus the
+ * result totals AS24 embeds in `__NEXT_DATA__` (`numberOfResults` = matches for
+ * the whole filter-set, `numberOfPages` = its page count). Powers true
+ * pagination on the live path (see directSearch.searchListingsDirectPage) — the
+ * caller walks page numbers instead of pulling a big pool and slicing.
+ *
+ * @param {object} filters  see PLAN.md §3
+ * @param {object} cfg      { page, country, sort, desc, referenceYear,
+ *                            includeModel, fetchImpl }
+ * @returns {Promise<{ listings: object[], numberOfResults: number|null,
+ *                     numberOfPages: number|null }>}
+ */
+export async function fetchAutoScout24Page(filters = {}, cfg = {}) {
+  const {
+    page = 1,
+    country = 'D',
+    sort = 'standard',
+    desc = 0,
+    referenceYear = new Date().getFullYear(),
+    includeModel = true,
+    fetchImpl = fetch,
+  } = cfg;
+
+  const url = buildSearchUrl(filters, { country, page, includeModel, sort, desc });
+  const data = extractNextData(await fetchPage(url, fetchImpl));
+  const pp = data?.props?.pageProps ?? {};
+  const cards = pp.listings ?? [];
+  return {
+    listings: cards.map((card) => mapListing(card, referenceYear)),
+    numberOfResults: Number.isFinite(pp.numberOfResults) ? pp.numberOfResults : null,
+    numberOfPages: Number.isFinite(pp.numberOfPages) ? pp.numberOfPages : null,
+  };
+}
 
 /**
  * Search AutoScout24 directly, paginating until `maxResults` or the last page.

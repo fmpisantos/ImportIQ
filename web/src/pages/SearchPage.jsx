@@ -44,14 +44,19 @@ export default function SearchPage() {
     return fetchPage(newFilters, 1);
   };
 
+  // Keep paging/sorting within whichever mode produced the current results, so
+  // Next on a live scrape stays live (and reaches deeper AS24 pages) instead of
+  // silently dropping back to the store.
+  const currentlyLive = data?.source === 'live';
+
   const goToPage = (page) => {
     if (!filters || running) return;
-    fetchPage(filters, page);
+    fetchPage(filters, page, sort, currentlyLive);
   };
 
   const changeSort = (key) => {
     setSort(key);
-    if (filters && !running) fetchPage(filters, 1, key);
+    if (filters && !running) fetchPage(filters, 1, key, currentlyLive);
   };
 
   // On-demand live scrape of the current search (bypasses the store) — useful

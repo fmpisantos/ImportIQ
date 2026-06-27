@@ -152,6 +152,19 @@ export default function SettingsPage() {
     }
   };
 
+  const clearCache = async () => {
+    setError(null);
+    try {
+      setBusy(true);
+      const r = await api.clearCache();
+      setFlash(`Cache cleared — ${r.total} ent(ies) removed. Your next search re-scrapes live.`);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runTest = async () => {
     setError(null);
     setTest({ pending: true });
@@ -346,6 +359,19 @@ export default function SettingsPage() {
             />
           )}
         </div>
+      </section>
+
+      {/* Cache */}
+      <section className="card">
+        <h3>Cache</h3>
+        <p className="muted small">
+          Search results are cached per filter-set and page for 12 hours so identical searches
+          don&apos;t re-scrape. Clear it if results look stale or you keep seeing the same cars — the
+          next search fetches fresh listings.
+        </p>
+        <button onClick={clearCache} disabled={busy}>
+          {busy ? 'Working…' : 'Clear cache'}
+        </button>
       </section>
 
       <div className="settings-actions">

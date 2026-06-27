@@ -6,7 +6,7 @@
 //   GET  /api/brands       → brand → models map for the filter dropdowns.
 
 import { Router } from 'express';
-import { searchListings, enrichListings, listBrandsAndModels } from '../adapters/source.js';
+import { searchListingsPaged, enrichListings, listBrandsAndModels } from '../adapters/source.js';
 import { getComparison } from '../adapters/ptmarket.js';
 import { buildConfigView, getDealsPage } from '../db.js';
 import { computeLandedCost, attachComparison } from '../engine/landedCost.js';
@@ -31,6 +31,16 @@ const SORT_MAP = {
   german: 'price',
   year: 'year',
   mileage: 'mileage',
+};
+
+// Live scraping can't order by a *computed* key (saving/landed depend on our
+// calc, which AS24 knows nothing about), so map the UI sort onto the nearest
+// source-side ordering and let the page re-sort within itself. Computed-only
+// sorts fall back to AS24's relevance order.
+const LIVE_SORT_MAP = {
+  german: { sort: 'price', desc: 0 },
+  year: { sort: 'age', desc: 1 },
+  mileage: { sort: 'mileage', desc: 0 },
 };
 
 router.post('/search', async (req, res, next) => {
@@ -70,12 +80,19 @@ router.post('/search', async (req, res, next) => {
       return;
     }
 
-    // --- Escape hatch (?live=1): the old live path for one query on demand ----
+    // --- Escape hatch (?live=1): paginated live scrape for one query on demand -
     const reference = { referenceYear: now.getFullYear(), referenceMonth: now.getMonth() + 1 };
-    const pool = await searchListings(filters);
-    const total = pool.length;
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const pageSlice = pool.slice((page - 1) * pageSize, page * pageSize);
+    const liveSort = LIVE_SORT_MAP[filters.sort] ?? { sort: 'standard', desc: 0 };
+    const paged = await searchListingsPaged(filters, {
+      now: now.getTime(),
+      page,
+      pageSize,
+      sort: liveSort.sort,
+      desc: liveSort.desc,
+    });
+    const pageSlice = paged.listings;
+    const total = paged.totalResults;
+    const totalPages = paged.totalPages;
 
     const enriched = await enrichListings(pageSlice, { now: now.getTime() });
     const computedResults = await Promise.all(

@@ -330,6 +330,26 @@ export function setCached(table, key, payload, now) {
     .run(key, JSON.stringify(payload), now);
 }
 
+// Search/scrape caches the user can flush from the Settings page. Includes the
+// live per-page scrape cache, AS24 detail-page cache, and Apify results (all in
+// listings_cache) plus the mobile.de refdata tree. Skips tables that don't exist
+// in this DB (e.g. pt_market_cache was retired). Returns rows cleared per table.
+export function clearSearchCaches() {
+  const db = getDb();
+  const candidates = ['listings_cache', 'refdata_cache', 'pt_market_cache'];
+  const cleared = {};
+  for (const table of candidates) {
+    const exists = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(table);
+    if (!exists) continue;
+    const before = db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n;
+    db.prepare(`DELETE FROM ${table}`).run();
+    cleared[table] = before;
+  }
+  return cleared;
+}
+
 export function setActiveSetting(key, value) {
   getDb()
     .prepare(
@@ -469,9 +489,10 @@ const dealNorm = (s) => String(s ?? '').trim().toLowerCase();
  * @param {object} [opts]   { sort, page, pageSize }
  */
 export function getDealsPage(filters = {}, opts = {}) {
-  // Show active + stale (a stale row may still be a live listing the sweep just
-  // hasn't re-reached); only 'sold' is hidden from the UI.
-  const where = ["status IN ('active', 'stale')"];
+  // Only 'active' (re-seen on the latest sweep) is shown. Stale/sold rows are
+  // unconfirmed or gone, and were dominating the saving sort with cars that had
+  // likely already sold — hide them so results reflect current inventory.
+  const where = ["status = 'active'"];
   const params = {};
   if (filters.brand) {
     where.push('lower(brand) = @brand');
