@@ -20,6 +20,7 @@
 // the Settings page for real data, or to `official`/`apify` once keys are set.
 
 import { getRuntimeSettings } from './db.js';
+import { POPULAR_BRANDS } from './adapters/brands.js';
 
 // Read a UI override (stored in SQLite) for `key`, falling back to the supplied
 // env/default value when the override is unset/blank. Read fresh every call so a
@@ -72,16 +73,40 @@ export const SWEEP_SORTS = [
   { sort: 'standard', desc: 0 }, // AS24's default relevance order
 ];
 
+// Market-wide price bands the sweep fans out over. Each is its own search, so
+// each reaches AS24's 20-page / 400-card limit *within that band* — together
+// they page far deeper into the market than one unfiltered query (which can
+// only ever see the 400 cheapest, 400 newest, … the same extreme windows).
+export const SWEEP_PRICE_BANDS = [
+  { priceMax: 10000 },
+  { priceMin: 10000, priceMax: 20000 },
+  { priceMin: 20000, priceMax: 35000 },
+  { priceMin: 35000, priceMax: 60000 },
+  { priceMin: 60000 },
+];
+
+/**
+ * The default fan-out: market-wide price bands + one query per popular brand.
+ * AS24 caps any single search at 400 cards, so a lone unfiltered sweep could
+ * only ever reach ~2,400 cars (the extremes of 6 sort orders). Segmenting gives
+ * each band/brand its own 400-card budget, multiplying real coverage. Overlap
+ * between segments is fine — runIngest dedupes by listing within a run.
+ */
+export function buildDefaultSweepQueries() {
+  return [...SWEEP_PRICE_BANDS, ...Object.keys(POPULAR_BRANDS).map((brand) => ({ brand }))];
+}
+
 const num = (v, dflt) => {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : dflt;
 };
 
 export function getIngestConfig() {
-  // The sweep query set. Default is one broad, unfiltered query (paginated deep
-  // across rotating sort orders). Override INGEST_SWEEP_QUERIES with a JSON
-  // array of filter objects to fan out across segments (brands, price bands).
-  let sweepQueries = [{}];
+  // The sweep query set. Default fans out across market-wide price bands + the
+  // popular brands so the store reaches deep, diverse inventory instead of the
+  // same extreme windows. Override INGEST_SWEEP_QUERIES with a JSON array of
+  // filter objects to customise the segments (e.g. add brand×price crosses).
+  let sweepQueries = buildDefaultSweepQueries();
   const raw = process.env.INGEST_SWEEP_QUERIES;
   if (raw) {
     try {

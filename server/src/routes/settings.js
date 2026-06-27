@@ -9,7 +9,7 @@
 // them over env/defaults on every request (see config.js `rt()`).
 
 import { Router } from 'express';
-import { getRuntimeSettings, setActiveSetting, getDb } from '../db.js';
+import { getRuntimeSettings, setActiveSetting, getDb, clearSearchCaches } from '../db.js';
 import { getDataSource, getApifyConfig, getMobiledeConfig } from '../config.js';
 import { mobiledeAccess } from '../adapters/directSearch.js';
 
@@ -120,6 +120,15 @@ router.put('/', (req, res) => {
   }
 
   res.json(describe());
+});
+
+// --- Cache management ------------------------------------------------------
+// Flush the scrape/search caches so the next search re-fetches live. Useful when
+// results look stale ("same cars") or after changing filters/source.
+router.post('/clear-cache', (req, res) => {
+  const cleared = clearSearchCaches();
+  const total = Object.values(cleared).reduce((a, b) => a + b, 0);
+  res.json({ ok: true, cleared, total });
 });
 
 // --- Connection test -------------------------------------------------------

@@ -14,16 +14,28 @@
 import { getDirectConfig, getApifyConfig, getMobiledeConfig } from '../config.js';
 import { getCached, setCached } from '../db.js';
 import { matchesFilters, dedupeListings } from './normalize.js';
-import { searchAutoScout24, enrichListing } from './direct/autoscout24.js';
+import {
+  searchAutoScout24,
+  fetchAutoScout24Page,
+  enrichListing,
+  PAGE_SIZE as AS24_PAGE_SIZE,
+  MAX_PAGES as AS24_MAX_PAGES,
+} from './direct/autoscout24.js';
 import { searchSiteApify } from './apifySearch.js';
 import { searchListingsViaOfficialApi } from './mobilede.js';
 import { missingListingFields } from '../engine/landedCost.js';
 
 // A listing's published specs are immutable — cache enriched details for long.
 const DETAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// A scraped result page is short-lived inventory — re-scrape similar searches at
+// most every 12h (per filter-set AND page; see searchListingsDirectPage).
+const LIVE_PAGE_TTL_MS = 12 * 60 * 60 * 1000;
 
-function cacheKey(filters, { sort = 'standard', desc = 0 } = {}) {
-  const relevant = {
+// The filter fields that actually change AutoScout24's result set. Shared by the
+// pool cache and the per-page live cache so identical searches collapse to one
+// key; `extra` carries sort/desc (and the page for the live cache).
+function relevantFilters(filters, extra = {}) {
+  return {
     brand: filters.brand ?? null,
     model: filters.model ?? null,
     bodyType: filters.bodyType ?? null,
@@ -33,11 +45,19 @@ function cacheKey(filters, { sort = 'standard', desc = 0 } = {}) {
     maxMileageKm: filters.maxMileageKm ?? null,
     fuelTypes: [...(filters.fuelTypes ?? [])].sort(),
     transmission: filters.transmission ?? null,
-    // Each sort order surfaces a different result window, so they cache apart.
-    sort,
-    desc,
+    ...extra,
   };
-  return `direct:autoscout24:${JSON.stringify(relevant)}`;
+}
+
+function cacheKey(filters, { sort = 'standard', desc = 0 } = {}) {
+  // Each sort order surfaces a different result window, so they cache apart.
+  return `direct:autoscout24:${JSON.stringify(relevantFilters(filters, { sort, desc }))}`;
+}
+
+function livePageCacheKey(filters, { sort = 'standard', desc = 0, page = 1, pageSize = 50 } = {}) {
+  // The page is part of the key — paging Next re-scrapes a *different* window,
+  // but re-opening the same page within 12h is served from cache.
+  return `direct:as24:livepage:${JSON.stringify(relevantFilters(filters, { sort, desc, page, pageSize }))}`;
 }
 
 // Run `worker` over items with bounded concurrency — enough to keep detail
@@ -204,6 +224,119 @@ export async function searchListingsDirect(filters = {}, opts = {}) {
     ...(as24.status === 'fulfilled' ? as24.value : []),
     ...(mobilede.status === 'fulfilled' ? mobilede.value : []),
   ]);
+}
+
+const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
+
+/** The AS24 native page numbers that make up UI page `uiPage` (1-based). */
+function as24PagesForUiPage(uiPage, pagesPerUiPage) {
+  const start = (uiPage - 1) * pagesPerUiPage + 1;
+  const out = [];
+  for (let i = 0; i < pagesPerUiPage; i++) {
+    const p = start + i;
+    if (p > AS24_MAX_PAGES) break; // AS24 won't serve past page 20
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Scrape the contiguous block of AS24 native pages that backs one UI page,
+ * concatenating their cards. Carries AS24's result totals from whichever page
+ * reported them. If the first page comes back empty for a brand+model search,
+ * the model slug was probably wrong — retry the whole window brand-only and let
+ * the post-filter narrow by model (mirrors searchAutoScout24's fallback).
+ */
+async function fetchAs24Window(filters, { pageNums, sort, desc, country, requestDelayMs, referenceYear }) {
+  const listings = [];
+  let numberOfResults = null;
+  let numberOfPages = null;
+  let includeModel = true;
+
+  for (let idx = 0; idx < pageNums.length; idx++) {
+    const opts = { page: pageNums[idx], sort, desc, country, referenceYear, includeModel };
+    let res = await fetchAutoScout24Page(filters, opts);
+    if (idx === 0 && !res.listings.length && includeModel && filters.brand && filters.model) {
+      includeModel = false;
+      res = await fetchAutoScout24Page(filters, { ...opts, includeModel });
+    }
+    if (res.numberOfResults != null) numberOfResults = res.numberOfResults;
+    if (res.numberOfPages != null) numberOfPages = res.numberOfPages;
+    listings.push(...res.listings);
+    // A page can legitimately map to <20 listings (AS24 interleaves sponsored /
+    // OCS cards that drop out), so only an *empty* page means we've run past the
+    // end — breaking on "<20" would skip the rest of the window.
+    if (!res.listings.length) break;
+    if (idx < pageNums.length - 1) await sleep(requestDelayMs);
+  }
+  return { listings, numberOfResults, numberOfPages };
+}
+
+/**
+ * True paginated live search: scrape only the page the UI asked for (a window of
+ * AS24 native pages), cached per filter-set AND page for 12h. Unlike
+ * searchListingsDirect (fetch a pool, slice), paging Next reaches deeper
+ * inventory instead of re-reading the same top cards — up to AS24's 20-page /
+ * 400-card hard cap.
+ *
+ * mobile.de (when a key is saved) isn't page-addressable here, so it joins only
+ * on page 1 to avoid repeating its listings on every page.
+ *
+ * @param {object} filters  see PLAN.md §3
+ * @param {object} [opts]   { now, page, pageSize, sort, desc }
+ * @returns {Promise<{ listings, page, pageSize, totalPages, totalResults }>}
+ */
+export async function searchListingsDirectPage(filters = {}, opts = {}) {
+  const now = opts.now ?? Date.now();
+  const referenceYear = filters.referenceYear ?? new Date(now).getFullYear();
+  const cfg = getDirectConfig();
+  const page = Math.max(1, Number(opts.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(opts.pageSize) || 50));
+  const sort = opts.sort ?? 'standard';
+  const desc = opts.desc === 1 || opts.desc === '1' ? 1 : 0;
+  const pagesPerUiPage = Math.max(1, Math.round(pageSize / AS24_PAGE_SIZE));
+
+  // 12h cache, keyed by filters + sort + page (the expensive part is the scrape;
+  // landed-cost + PT comparison are recomputed per request against live config).
+  const key = livePageCacheKey(filters, { sort, desc, page, pageSize });
+  let window = getCached('listings_cache', key, LIVE_PAGE_TTL_MS, now);
+  if (!window) {
+    const pageNums = as24PagesForUiPage(page, pagesPerUiPage);
+    window = await fetchAs24Window(filters, {
+      pageNums,
+      sort,
+      desc,
+      country: cfg.autoscout24Country,
+      requestDelayMs: cfg.requestDelayMs,
+      referenceYear,
+    });
+    setCached('listings_cache', key, window, now);
+  }
+
+  let listings = window.listings
+    .map((l) => ({ ...l, source: 'autoscout24' }))
+    .filter((l) => matchesFilters(l, filters));
+
+  // mobile.de joins page 1 only (not page-addressable through this path).
+  if (page === 1) {
+    try {
+      listings = listings.concat(await searchMobilede(filters, referenceYear, now));
+    } catch {
+      /* one source failing shouldn't sink the page */
+    }
+  }
+
+  // AS24 reports a generous numberOfPages but only serves the first 20 — clamp
+  // the reachable pages to that so the UI's Next button stops at real inventory.
+  const reachablePages = Math.min(AS24_MAX_PAGES, window.numberOfPages ?? AS24_MAX_PAGES);
+  const totalPages = Math.max(1, Math.ceil(reachablePages / pagesPerUiPage));
+  return {
+    listings: dedupeListings(listings),
+    page,
+    pageSize,
+    totalPages,
+    totalResults: window.numberOfResults ?? listings.length,
+  };
 }
 
 /**

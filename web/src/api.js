@@ -31,6 +31,7 @@ export const api = {
   getSettings: () => http('GET', '/api/settings'),
   updateSettings: (updates, clear = []) => http('PUT', '/api/settings', { updates, clear }),
   testConnection: () => http('POST', '/api/settings/test'),
+  clearCache: () => http('POST', '/api/settings/clear-cache'),
 };
 
 // Export helpers POST results back and trigger a file download.

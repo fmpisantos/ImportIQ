@@ -14,7 +14,12 @@ import {
   listBrandsAndModels as listMobiledeBrands,
 } from './mobilede.js';
 import { searchListingsApify } from './apifySearch.js';
-import { searchListingsDirect, enrichListingsDirect, enrichOneCached } from './directSearch.js';
+import {
+  searchListingsDirect,
+  searchListingsDirectPage,
+  enrichListingsDirect,
+  enrichOneCached,
+} from './directSearch.js';
 import { POPULAR_BRANDS } from './brands.js';
 import { missingListingFields } from '../engine/landedCost.js';
 
@@ -23,6 +28,32 @@ export async function searchListings(filters = {}, opts = {}) {
   if (source === 'apify') return searchListingsApify(filters, opts);
   if (source === 'direct') return searchListingsDirect(filters, opts);
   return searchMobiledeOrMock(filters, opts); // handles both mock and official
+}
+
+/**
+ * Paginated live search for the on-demand UI path. The `direct` source scrapes
+ * exactly the requested page (cached per filter-set + page for 12h); every other
+ * source has no native pagination, so we fetch its pool once and slice. Returns
+ * the same envelope either way: `{ listings, page, pageSize, totalPages,
+ * totalResults }`.
+ */
+export async function searchListingsPaged(filters = {}, opts = {}) {
+  const page = Math.max(1, Number(opts.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(opts.pageSize) || 50));
+
+  if (getDataSource() === 'direct') {
+    return searchListingsDirectPage(filters, { ...opts, page, pageSize });
+  }
+
+  // Non-direct sources: keep the legacy fetch-pool-then-slice behaviour.
+  const pool = await searchListings(filters, opts);
+  return {
+    listings: pool.slice((page - 1) * pageSize, page * pageSize),
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(pool.length / pageSize)),
+    totalResults: pool.length,
+  };
 }
 
 /**

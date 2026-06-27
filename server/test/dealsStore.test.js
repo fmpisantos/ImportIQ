@@ -125,8 +125,8 @@ test('ageOutDeals transitions active → stale → sold by freshness', () => {
   assert.equal(getDeal('autoscout24:fresh').status, 'active');
   assert.equal(getDeal('autoscout24:old').status, 'stale');
   assert.equal(getDeal('autoscout24:ancient').status, 'sold');
-  // Sold rows are hidden from the UI page.
-  assert.equal(getDealsPage({}, {}).total, 2);
+  // Only active rows show in the UI — stale and sold are both hidden.
+  assert.equal(getDealsPage({}, {}).total, 1);
 });
 
 test('purgeOldSoldDeals deletes long-sold rows only', () => {
