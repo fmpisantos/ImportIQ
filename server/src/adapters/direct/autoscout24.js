@@ -16,14 +16,23 @@ import {
   canonicalFuel,
   canonicalTransmission,
   parseYear,
+  parseRegMonth,
+  qualifiesForReducedEvRegime,
   inferEmissionStandard,
   slugify,
 } from '../normalize.js';
-import { missingListingFields } from '../../engine/landedCost.js';
+import { normaliseFuel } from '../../engine/isv.js';
+import { missingListingFields, missingTaxRefinements } from '../../engine/landedCost.js';
 
 const BASE_URL = 'https://www.autoscout24.de';
 export const PAGE_SIZE = 20; // AS24 serves 20 listings per search page
 export const MAX_PAGES = 20; // AS24 hard-caps pagination at 20 pages
+
+// Representative particle emission (g/km) for a diesel WITHOUT a particle filter
+// — only needs to clear the 0.001 g/km surcharge threshold; real non-DPF diesels
+// emit ~0.005–0.025 g/km. Used to translate AS24's boolean `hasParticleFilter`
+// into the engine's numeric particle input (see enrichListing).
+export const NON_DPF_PARTICLES_GKM = 0.005;
 
 const HEADERS = {
   'User-Agent':
@@ -178,8 +187,12 @@ export function deriveModel(vehicle = {}) {
 export function mapListing(card = {}, referenceYear) {
   const vehicle = card.vehicle ?? {};
   const tracking = card.tracking ?? {};
-  const year = parseYear(pick(tracking.firstRegistration, detailByIcon(card, 'calendar')));
-  const emission = inferEmissionStandard(year);
+  // The card states the first registration as "09-2008" (MM-YYYY) — carries the
+  // month, which the VAT ≤6-month test and the 2018 WLTP boundary both need.
+  const regRaw = pick(tracking.firstRegistration, detailByIcon(card, 'calendar'));
+  const year = parseYear(regRaw);
+  const month = parseRegMonth(regRaw);
+  const emission = inferEmissionStandard(year, month);
   const images = card.images ?? [];
   const url = card.url ? new URL(card.url, BASE_URL).href : null;
 
@@ -189,7 +202,7 @@ export function mapListing(card = {}, referenceYear) {
     model: deriveModel(vehicle),
     year,
     firstRegYear: year,
-    firstRegMonth: null,
+    firstRegMonth: month,
     mileageKm: intFrom(pick(tracking.mileage, vehicle.mileageInKm)),
     fuelType: canonicalFuel(pick(vehicle.fuel, tracking.fuelType)),
     transmission: canonicalTransmission(vehicle.transmission),
@@ -342,12 +355,21 @@ export async function searchAutoScout24(filters = {}, cfg = {}) {
 export async function enrichListing(listing, opts = {}) {
   const { fetchImpl = fetch } = opts;
   const before = missingListingFields(listing);
-  if (!before.length) return { listing, enrichStatus: 'complete', missingFields: [] };
+  // Also fetch when only a tax *refinement* is missing (diesel particles, PHEV
+  // range) — the car is already costable, but the detail page sharpens its ISV.
+  const refinements = missingTaxRefinements(listing);
+  if (!before.length && !refinements.length) {
+    return { listing, enrichStatus: 'complete', missingFields: [] };
+  }
 
   // No usable detail page to consult — this source can't fill the gap, so it's
-  // terminal for this car rather than a retryable fetch failure.
+  // terminal for a required field (enrich complete if only a refinement is gone).
   if (!listing?.url || !listing.url.startsWith(BASE_URL)) {
-    return { listing, enrichStatus: 'source_missing', missingFields: before };
+    return {
+      listing,
+      enrichStatus: before.length ? 'source_missing' : 'complete',
+      missingFields: before,
+    };
   }
 
   let vehicle;
@@ -365,11 +387,36 @@ export async function enrichListing(listing, opts = {}) {
     vehicle.co2emissionInGramPerKmWithFallback?.raw,
     vehicle.rawData?.fuels?.primary?.co2emissionInGramPerKmWithFallback?.raw
   );
+  const co2GKm = listing.co2GKm ?? intFrom(co2);
+  const fuel = normaliseFuel(listing.fuelType);
+  const electricRangeKm =
+    listing.electricRangeKm ?? intFrom(vehicle.electricRangeWithFallback?.raw);
+
+  // PT diesel particulate surcharge (€500) applies above 0.001 g/km. AS24 only
+  // publishes the boolean `hasParticleFilter`, so map it to the engine's numeric
+  // input: a DPF-equipped diesel sits below the threshold (~0), one without a
+  // filter above it (NON_DPF_PARTICLES_GKM). Non-diesels carry no particle value.
+  let particleEmissionsGKm = listing.particleEmissionsGKm;
+  if (fuel === 'diesel' && typeof vehicle.hasParticleFilter === 'boolean') {
+    particleEmissionsGKm = vehicle.hasParticleFilter ? 0 : NON_DPF_PARTICLES_GKM;
+  }
+
   const enriched = {
     ...listing,
-    co2GKm: listing.co2GKm ?? intFrom(co2),
+    co2GKm,
     powerKw: listing.powerKw ?? intFrom(vehicle.rawPowerInKw),
     displacementCm3: listing.displacementCm3 ?? intFrom(vehicle.rawDisplacementInCCM),
+    // Detail page states the full date ("09/2008" / "2008-09-01") — fill the
+    // month the search card may have lacked, for the VAT ≤6-month test.
+    firstRegMonth:
+      listing.firstRegMonth ??
+      parseRegMonth(pick(vehicle.firstRegistrationDate, vehicle.firstRegistrationDateRaw)),
+    electricRangeKm,
+    particleEmissionsGKm,
+    // PHEV reduced-ISV regime, now provable from the detail page's electric range.
+    qualifiesForEvRegime:
+      listing.qualifiesForEvRegime ||
+      qualifiesForReducedEvRegime(fuel, electricRangeKm, co2GKm),
   };
   const after = missingListingFields(enriched);
   // Detail page loaded but still no CO₂/displacement → the source simply doesn't

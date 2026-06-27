@@ -26,10 +26,49 @@ const throwFetch = () => {
   throw new Error('fetch should not be called');
 };
 
-test('a listing already carrying every ISV field is complete WITHOUT a fetch', async () => {
-  const r = await enrichListing({ ...combustion, co2GKm: 120 }, { fetchImpl: throwFetch });
+test('a listing already carrying every ISV field (incl. particle info) is complete WITHOUT a fetch', async () => {
+  // Diesel, so particle info is part of "fully known" — provide it so no detail
+  // fetch is needed to resolve the particulate surcharge.
+  const r = await enrichListing(
+    { ...combustion, co2GKm: 120, particleEmissionsGKm: 0 },
+    { fetchImpl: throwFetch }
+  );
   assert.equal(r.enrichStatus, 'complete');
   assert.deepEqual(r.missingFields, []);
+});
+
+test('a petrol car with CO₂ + displacement is complete WITHOUT a fetch (no particle refinement)', async () => {
+  const r = await enrichListing(
+    { fuelType: 'Petrol', displacementCm3: 1498, co2GKm: 130, url: combustion.url },
+    { fetchImpl: throwFetch }
+  );
+  assert.equal(r.enrichStatus, 'complete');
+});
+
+test('a diesel with CO₂ but no particle info FETCHES the detail page and reads hasParticleFilter', async () => {
+  // Costable already (CO₂ + displacement), but the €500 particulate surcharge is
+  // only knowable from the detail page → a fetch is triggered to refine it.
+  const noFilter = await enrichListing(
+    { ...combustion, co2GKm: 120 },
+    { fetchImpl: () => resp(200, detailHtml({ hasParticleFilter: false })) }
+  );
+  assert.equal(noFilter.enrichStatus, 'complete');
+  assert.ok(noFilter.listing.particleEmissionsGKm >= 0.001, 'no DPF → above the surcharge threshold');
+
+  const withFilter = await enrichListing(
+    { ...combustion, co2GKm: 120 },
+    { fetchImpl: () => resp(200, detailHtml({ hasParticleFilter: true })) }
+  );
+  assert.equal(withFilter.listing.particleEmissionsGKm, 0, 'DPF → no surcharge');
+});
+
+test('a PHEV missing electric range FETCHES the detail page and qualifies for the reduced regime', async () => {
+  const phev = { fuelType: 'Plug-in Hybrid', displacementCm3: 1395, co2GKm: 30, url: combustion.url };
+  const r = await enrichListing(phev, {
+    fetchImpl: () => resp(200, detailHtml({ electricRangeWithFallback: { raw: 60 } })),
+  });
+  assert.equal(r.listing.electricRangeKm, 60);
+  assert.equal(r.listing.qualifiesForEvRegime, true, '≥50 km range and <50 g/km CO₂ → reduced ISV');
 });
 
 test('an EV needs no CO₂/displacement → complete without a fetch', async () => {
