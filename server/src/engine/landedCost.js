@@ -216,6 +216,7 @@ export function attachComparison(result, comparison, opts = {}) {
       marginEur: null,
       marginPct: null,
       estimatedResaleEur: null,
+      confidence: comparison?.confidence ?? null,
     };
   }
   const savingEur = round2(ref - result.totalLandedCostEur);
@@ -241,5 +242,9 @@ export function attachComparison(result, comparison, opts = {}) {
     marginEur,
     marginPct,
     resaleHaircutPct: haircutPct || null,
+    // Surfaced at result level so the badge/caution layer can temper a saving that
+    // rests on a weak benchmark (small/dispersed/model-only sample) — see
+    // ptMarketClient.gradeConfidence. Null when the comparison didn't grade it.
+    confidence: comparison.confidence ?? null,
   };
 }

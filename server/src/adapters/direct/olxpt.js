@@ -25,6 +25,7 @@ import {
   comparableMatches,
   finalizeComparison,
 } from '../ptMarketClient.js';
+import { classifyTrim } from '../../engine/trim.js';
 import {
   canonicalFuel,
   canonicalTransmission,
@@ -135,6 +136,10 @@ function extractComparable(item) {
     year: intFrom(paramOf(item, 'year')),
     powerKw: cvToKw(leadingInt(paramOf(item, 'engine_power'))),
     displacementCm3: leadingInt(paramOf(item, 'engine_capacity')),
+    // Trim tier from the ad title (OLX has no structured trim field) — feeds the
+    // shared matcher's like-for-like trim narrowing. A title that omits the trim
+    // falls back to 'base'; the matcher treats that tolerantly.
+    trimTier: classifyTrim(`${item.title ?? ''} ${paramOf(item, 'modelo') ?? ''}`).tier,
   };
 }
 

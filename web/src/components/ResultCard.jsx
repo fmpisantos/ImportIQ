@@ -9,10 +9,45 @@ const SOURCE_LABELS = {
 };
 
 const METHOD_LABELS = {
+  'mileage-power-regression': 'mileage- & power-adjusted',
   'mileage-regression': 'mileage-adjusted',
   median: 'median',
   mean: 'mean',
 };
+
+const ENGINE_TIER_LABELS = {
+  tight: 'tight engine match (±12% power / ±8% displacement)',
+  loose: 'standard engine match (±20% power / ±15% displacement)',
+};
+
+const TRIM_LABELS = {
+  base: 'base',
+  sport: 'sport-package',
+  performance: 'performance',
+};
+
+const CONFIDENCE_LABELS = { high: 'High', medium: 'Medium', low: 'Low' };
+
+// Human-readable reasons a benchmark's confidence was downgraded (keys from
+// ptMarketClient.gradeConfidence).
+const CONFIDENCE_FACTOR_LABELS = {
+  'small-sample': 'Few comparable listings (< 5)',
+  'subject-engine-spec-missing': 'This car has no published power/displacement — comparables matched on model only',
+  'mostly-model-only-match': 'Most comparables lacked engine specs, so they were matched on model only',
+  'trim-not-matched': 'Trims are mixed — too few same-trim listings to isolate',
+  'high-price-spread': 'Asking prices are widely spread',
+  'very-high-price-spread': 'Asking prices are very widely spread',
+};
+
+// "(3 base, 2 sport-package, 1 performance found)" — the per-tier counts behind
+// the trim narrowing, so the user can see how mixed the raw PT sample was.
+function trimBreakdownText(breakdown) {
+  if (!breakdown) return '';
+  const parts = Object.entries(breakdown)
+    .filter(([, n]) => n > 0)
+    .map(([t, n]) => `${n} ${TRIM_LABELS[t] ?? t}`);
+  return parts.length ? ` (${parts.join(', ')} found)` : '';
+}
 
 // Caveats that should keep a result out of the clean green "deal" badge: VAT on
 // a nearly-new import, or an implausibly-low German price.
@@ -29,6 +64,11 @@ function cautionNotes(result) {
     );
   }
   if (result.germanPriceSuspicious) notes.push(...(result.germanPriceNotes ?? []));
+  if (result.savingEur != null && result.confidence === 'low') {
+    notes.push(
+      'Low benchmark confidence — the PT comparison is small, widely spread, or matched on model only. Verify the comparables (open the PT market breakdown) before trusting this saving.'
+    );
+  }
   return notes;
 }
 
@@ -38,11 +78,18 @@ function SavingBadge({ result }) {
   }
   if (result.savingEur == null) return null;
   const saving = result.savingEur >= 0;
+  // A low-confidence benchmark gets a muted, asterisked badge so a fragile saving
+  // doesn't read as a sure thing.
+  const uncertain = result.confidence === 'low';
   return (
-    <span className={`badge ${saving ? 'save' : 'premium'}`}>
+    <span
+      className={`badge ${saving ? 'save' : 'premium'}${uncertain ? ' uncertain' : ''}`}
+      title={uncertain ? 'Low-confidence benchmark — see the PT market breakdown' : undefined}
+    >
       {saving ? '▼ Save ' : '▲ Premium '}
       {eur(Math.abs(result.savingEur))}
       {result.savingPct != null && ` (${saving ? '+' : ''}${result.savingPct}%)`}
+      {uncertain && ' *'}
     </span>
   );
 }
@@ -99,16 +146,67 @@ function PtMarketModal({ comparison, onClose }) {
               comparison.matchedCriteria.model,
               comparison.matchedCriteria.fuelType,
               comparison.matchedCriteria.transmission,
+              comparison.matchedCriteria.trimTier &&
+                `${TRIM_LABELS[comparison.matchedCriteria.trimTier] ?? comparison.matchedCriteria.trimTier} trim`,
             ]
               .filter(Boolean)
               .join(' · ') || 'brand only'}
             , {comparison.criteria?.yearRange?.join('–')}.
+            {comparison.engineTier && (
+              <>
+                {' '}
+                <span title={ENGINE_TIER_LABELS[comparison.engineTier]}>
+                  {comparison.engineTier === 'tight'
+                    ? 'Tight engine match.'
+                    : 'Standard engine tolerance.'}
+                </span>
+              </>
+            )}
           </p>
         )}
-        {comparison.lowConfidence && (
-          <p className="warn">
-            ⚠ Low confidence — fewer than 5 comparable listings matched.
+        {comparison.trimMatched === true && comparison.trimTier && (
+          <p className="muted">
+            Compared like-for-like against{' '}
+            <strong>{TRIM_LABELS[comparison.trimTier] ?? comparison.trimTier}</strong>{' '}
+            trims only{trimBreakdownText(comparison.trimBreakdown)}.
           </p>
+        )}
+        {comparison.trimMatched === false && (
+          <p className="warn">
+            ⚠ Trim not matched — too few same-trim listings, so the benchmark mixes
+            trims{trimBreakdownText(comparison.trimBreakdown)}. Treat the saving with
+            caution: extras/sport packages may explain the price gap.
+          </p>
+        )}
+        {comparison.confidence && (
+          <div className={`confidence confidence-${comparison.confidence}`}>
+            <p>
+              Benchmark confidence:{' '}
+              <strong>{CONFIDENCE_LABELS[comparison.confidence] ?? comparison.confidence}</strong>
+            </p>
+            {comparison.dispersion && (
+              <p className="small muted">
+                Asking range {eur(comparison.dispersion.minPriceEur)}–
+                {eur(comparison.dispersion.maxPriceEur)}
+                {comparison.dispersion.relIqr != null &&
+                  ` · middle-half spread ${Math.round(comparison.dispersion.relIqr * 100)}% of median`}
+              </p>
+            )}
+            {comparison.engineMatch?.total > 0 && (
+              <p className="small muted">
+                {comparison.engineMatch.subjectHasSpec
+                  ? `${comparison.engineMatch.matched}/${comparison.engineMatch.total} comparables matched on engine (power + displacement)`
+                  : 'This car publishes no power/displacement — comparables matched on model only'}
+              </p>
+            )}
+            {comparison.confidenceFactors?.length > 0 && (
+              <ul className="confidence-factors">
+                {comparison.confidenceFactors.map((f) => (
+                  <li key={f}>{CONFIDENCE_FACTOR_LABELS[f] ?? f}</li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
         {comparison.searchUrl && (
           <a href={comparison.searchUrl} target="_blank" rel="noreferrer" className="ext">

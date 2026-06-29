@@ -31,6 +31,7 @@ import {
   comparableMatches,
   withinComparisonWindow,
 } from '../ptMarketClient.js';
+import { classifyTrim } from '../../engine/trim.js';
 
 const BASE_URL = 'https://www.standvirtual.com';
 const MAX_PAGES = 2;
@@ -155,6 +156,11 @@ export function toComparable(node) {
     year: intFrom(val(m, 'first_registration_year')),
     powerKw: cvToKw(leadingInt(val(m, 'engine_power'))),
     displacementCm3: leadingInt(val(m, 'engine_capacity')),
+    // Trim tier from the ad title/version text — feeds the shared matcher's
+    // like-for-like trim narrowing (a title without a trim falls back to 'base').
+    trimTier: classifyTrim(
+      `${node.title ?? node.shortDescription ?? ''} ${disp(m, 'version') ?? ''} ${disp(m, 'model') ?? ''}`
+    ).tier,
   };
 }
 

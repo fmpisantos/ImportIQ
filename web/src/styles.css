@@ -93,6 +93,16 @@ select:disabled { opacity: 0.5; }
 .badge.save { background: rgba(46,204,113,0.15); color: var(--green); }
 .badge.premium { background: rgba(255,93,93,0.15); color: var(--red); }
 .badge.incomplete { background: rgba(245,166,35,0.15); color: var(--amber); }
+/* Low-confidence saving: muted + dashed so a fragile benchmark doesn't read as sure. */
+.badge.uncertain { opacity: 0.7; border: 1px dashed currentColor; cursor: help; }
+
+/* Confidence block in the PT-market modal. */
+.confidence { border-radius: 8px; padding: 8px 12px; margin: 10px 0; border: 1px solid var(--border); }
+.confidence-high { background: rgba(46,204,113,0.08); }
+.confidence-medium { background: rgba(245,166,35,0.10); }
+.confidence-low { background: rgba(255,93,93,0.10); }
+.confidence-factors { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.confidence-factors li { margin: 2px 0; }
 .badge.source { font-size: 11px; font-weight: 600; padding: 2px 7px; margin-left: 8px; background: rgba(255,255,255,0.08); color: var(--muted, #9aa); vertical-align: middle; }
 .badge.matched { font-size: 11px; font-weight: 600; padding: 2px 7px; margin-left: 8px; background: rgba(79,140,255,0.14); color: var(--accent, #4f8cff); vertical-align: middle; cursor: help; }
 

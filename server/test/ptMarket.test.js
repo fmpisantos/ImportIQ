@@ -10,6 +10,12 @@ import {
   regressionEstimate,
   estimateMarketValue,
   finalizeComparison,
+  selectByTrim,
+  priceDispersion,
+  engineMatchStats,
+  gradeConfidence,
+  selectByEngineTier,
+  multiRegressionEstimate,
 } from '../src/adapters/ptMarketClient.js';
 
 test('comparisonCriteria builds the PLAN §5 window (year ±1, mileage ±20k)', () => {
@@ -125,6 +131,270 @@ test('comparableMatches does NOT match up to a broader, costlier model line', ()
     comparableMatches({ model: 'Range Rover Velar 3.0 D HSE', fuel: 'Diesel' }, subject),
     true
   );
+});
+
+// --- trim-tier matching -----------------------------------------------------
+
+test('comparableMatches drops a performance car when the subject is not (and vice versa)', () => {
+  const baseSubject = { ...SUBJECT, trimTier: 'base' };
+  const perfComp = { model: '320', fuel: 'Diesel', powerKw: 140, trimTier: 'performance' };
+  assert.equal(comparableMatches(perfComp, baseSubject), false);
+
+  const perfSubject = { ...SUBJECT, trimTier: 'performance' };
+  const baseComp = { model: '320', fuel: 'Diesel', powerKw: 140, trimTier: 'base' };
+  assert.equal(comparableMatches(baseComp, perfSubject), false);
+});
+
+test('comparableMatches keeps a sport-package comparable for a base subject (only performance is categorical)', () => {
+  const baseSubject = { ...SUBJECT, trimTier: 'base' };
+  const sportComp = { model: '320', fuel: 'Diesel', powerKw: 140, trimTier: 'sport' };
+  assert.equal(comparableMatches(sportComp, baseSubject), true);
+});
+
+test('comparableMatches stays trim-agnostic when tiers are unknown (back-compat)', () => {
+  const c = { model: '320', fuel: 'Diesel', powerKw: 140 }; // no trimTier
+  assert.equal(comparableMatches(c, SUBJECT), true); // SUBJECT has no trimTier either
+});
+
+test('selectByTrim narrows to same-tier comparables when enough survive', () => {
+  const items = [
+    { priceEur: 20000, trimTier: 'base' },
+    { priceEur: 21000, trimTier: 'base' },
+    { priceEur: 22000, trimTier: 'base' },
+    { priceEur: 34000, trimTier: 'sport' }, // pricier sport trims to exclude
+    { priceEur: 35000, trimTier: 'sport' },
+  ];
+  const out = selectByTrim(items, { trimTier: 'base' });
+  assert.equal(out.trimMatched, true);
+  assert.equal(out.items.length, 3);
+  assert.ok(out.items.every((i) => i.trimTier === 'base'));
+  assert.deepEqual(out.trimBreakdown, { base: 3, sport: 2, performance: 0 });
+});
+
+test('selectByTrim falls back to the full set when same-tier is too thin, flagging trimMatched=false', () => {
+  const items = [
+    { priceEur: 20000, trimTier: 'base' },
+    { priceEur: 34000, trimTier: 'sport' },
+    { priceEur: 35000, trimTier: 'sport' },
+    { priceEur: 36000, trimTier: 'sport' },
+  ];
+  const out = selectByTrim(items, { trimTier: 'base' }); // only 1 base < MIN_RELIABLE_SAMPLE
+  assert.equal(out.trimMatched, false);
+  assert.equal(out.items.length, 4);
+});
+
+test('selectByTrim is a no-op when the subject tier is unknown', () => {
+  const items = [{ priceEur: 20000, trimTier: 'base' }];
+  const out = selectByTrim(items, {});
+  assert.equal(out.trimMatched, null);
+  assert.equal(out.items.length, 1);
+});
+
+test('finalizeComparison narrows to same-tier and surfaces trim fields', () => {
+  const items = [
+    { priceEur: 20000, trimTier: 'base' },
+    { priceEur: 21000, trimTier: 'base' },
+    { priceEur: 22000, trimTier: 'base' },
+    { priceEur: 40000, trimTier: 'sport' },
+    { priceEur: 41000, trimTier: 'sport' },
+  ];
+  const out = finalizeComparison({
+    items,
+    source: 'olx.pt',
+    criteria: WINDOW,
+    listing: { model: '320', fuelType: 'Diesel', trimTier: 'base', mileageKm: 60000 },
+  });
+  assert.equal(out.trimTier, 'base');
+  assert.equal(out.trimMatched, true);
+  assert.equal(out.sampleSize, 3); // sport trims excluded from the benchmark
+  assert.ok(out.marketValueEur <= 22000, 'market value reflects base trims only');
+  assert.deepEqual(out.trimBreakdown, { base: 3, sport: 2, performance: 0 });
+  assert.equal(out.matchedCriteria.trimTier, 'base');
+});
+
+// --- confidence: dispersion + engine-match + grading -----------------------
+
+test('priceDispersion reports relative IQR and the raw range, null when too few', () => {
+  assert.equal(priceDispersion([{ priceEur: 20000 }, { priceEur: 21000 }]), null);
+  const d = priceDispersion([
+    { priceEur: 18000 }, { priceEur: 20000 }, { priceEur: 22000 }, { priceEur: 24000 },
+  ]);
+  assert.equal(d.minPriceEur, 18000);
+  assert.equal(d.maxPriceEur, 24000);
+  assert.ok(d.relIqr > 0 && d.relIqr < 1);
+});
+
+test('engineMatchStats counts only comparables with both engine fields against a spec-bearing subject', () => {
+  const subject = { powerKw: 140, displacementCm3: 1995 };
+  const items = [
+    { priceEur: 20000, powerKw: 140, displacementCm3: 2000 }, // engine-matched
+    { priceEur: 21000, powerKw: 135 }, // missing displacement → model-only
+    { priceEur: 22000 }, // no engine fields → model-only
+  ];
+  const s = engineMatchStats(items, subject);
+  assert.equal(s.subjectHasSpec, true);
+  assert.equal(s.matched, 1);
+  assert.equal(s.total, 3);
+  assert.equal(s.ratio, 0.33);
+});
+
+test('engineMatchStats reports subjectHasSpec=false and zero matches when the subject lacks engine data', () => {
+  const s = engineMatchStats([{ powerKw: 140, displacementCm3: 2000 }], { model: '320' });
+  assert.equal(s.subjectHasSpec, false);
+  assert.equal(s.matched, 0);
+});
+
+test('gradeConfidence is high for a clean benchmark and low when signals stack', () => {
+  const high = gradeConfidence({
+    sampleSize: 8,
+    engine: { ratio: 0.9, subjectHasSpec: true },
+    dispersion: { relIqr: 0.12 },
+    trimMatched: true,
+  });
+  assert.equal(high.level, 'high');
+  assert.deepEqual(high.factors, []);
+
+  const low = gradeConfidence({
+    sampleSize: 4, // small-sample
+    engine: { ratio: 0.2, subjectHasSpec: true }, // mostly-model-only
+    dispersion: { relIqr: 0.7 }, // very-high-spread (+2)
+    trimMatched: false, // trim-not-matched
+  });
+  assert.equal(low.level, 'low');
+  assert.ok(low.factors.includes('very-high-price-spread'));
+});
+
+test('finalizeComparison surfaces confidence, dispersion and engineMatch', () => {
+  const items = [
+    { priceEur: 19000, powerKw: 140, displacementCm3: 1995, trimTier: 'base' },
+    { priceEur: 20000, powerKw: 138, displacementCm3: 1998, trimTier: 'base' },
+    { priceEur: 21000, powerKw: 140, displacementCm3: 2000, trimTier: 'base' },
+    { priceEur: 20500, powerKw: 142, displacementCm3: 1995, trimTier: 'base' },
+    { priceEur: 19500, powerKw: 139, displacementCm3: 1990, trimTier: 'base' },
+  ];
+  const out = finalizeComparison({
+    items,
+    source: 'olx.pt',
+    criteria: WINDOW,
+    listing: { model: '320', fuelType: 'Diesel', trimTier: 'base', powerKw: 140, displacementCm3: 1995, mileageKm: 60000 },
+  });
+  assert.equal(out.confidence, 'high');
+  assert.equal(out.engineMatch.matched, 5);
+  assert.equal(out.engineMatch.subjectHasSpec, true);
+  assert.ok(out.dispersion.relIqr != null);
+  assert.deepEqual(out.confidenceFactors, []);
+});
+
+// --- C: tiered engine tolerances -------------------------------------------
+
+test('selectByEngineTier narrows to the tight band when enough mechanically-identical comparables exist', () => {
+  const subject = { powerKw: 140, displacementCm3: 1995 };
+  const items = [
+    { priceEur: 20000, powerKw: 140, displacementCm3: 1995 }, // exact
+    { priceEur: 21000, powerKw: 145, displacementCm3: 2000 }, // within ±12%/±8%
+    { priceEur: 22000, powerKw: 135, displacementCm3: 1990 }, // within
+    { priceEur: 30000, powerKw: 190, displacementCm3: 2998 }, // 330d-ish — outside tight
+  ];
+  const out = selectByEngineTier(items, subject);
+  assert.equal(out.engineTier, 'tight');
+  assert.equal(out.items.length, 3);
+});
+
+test('selectByEngineTier falls back to loose when too few sit in the tight band', () => {
+  const subject = { powerKw: 140, displacementCm3: 1995 };
+  const items = [
+    { priceEur: 20000, powerKw: 140, displacementCm3: 1995 }, // only 1 tight
+    { priceEur: 30000, powerKw: 190, displacementCm3: 2998 },
+    { priceEur: 31000, powerKw: 185, displacementCm3: 2998 },
+    { priceEur: 32000, powerKw: 188, displacementCm3: 2998 },
+  ];
+  const out = selectByEngineTier(items, subject);
+  assert.equal(out.engineTier, 'loose');
+  assert.equal(out.items.length, 4);
+});
+
+test('selectByEngineTier is a no-op (engineTier null) when the subject lacks engine specs', () => {
+  const items = [{ priceEur: 20000, powerKw: 140, displacementCm3: 1995 }];
+  const out = selectByEngineTier(items, { model: '320' });
+  assert.equal(out.engineTier, null);
+  assert.equal(out.items.length, 1);
+});
+
+test('selectByEngineTier does not count spec-less comparables as tight matches', () => {
+  const subject = { powerKw: 140, displacementCm3: 1995 };
+  const items = [
+    { priceEur: 20000, powerKw: 140, displacementCm3: 1995 },
+    { priceEur: 21000 }, // no specs — must NOT count toward the tight set
+    { priceEur: 22000 },
+  ];
+  const out = selectByEngineTier(items, subject);
+  assert.equal(out.engineTier, 'loose'); // only 1 genuine tight match < MIN
+});
+
+// --- D: spec-normalized (mileage + power) regression -----------------------
+
+test('multiRegressionEstimate predicts at the subject mileage+power when power genuinely varies', () => {
+  // Price rises with power, falls with mileage. Subject: high power, low mileage.
+  const points = [
+    { x1: 100000, x2: 110, y: 18000 },
+    { x1: 90000, x2: 120, y: 21000 },
+    { x1: 80000, x2: 130, y: 24000 },
+    { x1: 70000, x2: 140, y: 27000 },
+    { x1: 120000, x2: 110, y: 16000 },
+    { x1: 110000, x2: 120, y: 19000 },
+    { x1: 95000, x2: 130, y: 23000 },
+    { x1: 60000, x2: 140, y: 28000 },
+  ];
+  const est = multiRegressionEstimate(points, { x1: 70000, x2: 140 });
+  assert.ok(est != null);
+  assert.ok(est > 24000, `expected a high-power/low-mileage estimate, got ${est}`);
+});
+
+test('multiRegressionEstimate returns null when power has no variation (degenerate 2nd predictor)', () => {
+  const points = Array.from({ length: 8 }, (_, i) => ({ x1: 100000 - i * 5000, x2: 140, y: 20000 + i * 500 }));
+  assert.equal(multiRegressionEstimate(points, { x1: 80000, x2: 140 }), null);
+});
+
+test('multiRegressionEstimate returns null below the minimum point count', () => {
+  const points = [
+    { x1: 100000, x2: 110, y: 18000 },
+    { x1: 90000, x2: 120, y: 21000 },
+    { x1: 80000, x2: 130, y: 24000 },
+  ];
+  assert.equal(multiRegressionEstimate(points, { x1: 80000, x2: 130 }), null);
+});
+
+test('estimateMarketValue prefers the spec-normalized method when it fits', () => {
+  const items = [
+    { priceEur: 18000, mileageKm: 100000, powerKw: 110 },
+    { priceEur: 21000, mileageKm: 90000, powerKw: 120 },
+    { priceEur: 24000, mileageKm: 80000, powerKw: 130 },
+    { priceEur: 27000, mileageKm: 70000, powerKw: 140 },
+    { priceEur: 16000, mileageKm: 120000, powerKw: 110 },
+    { priceEur: 19000, mileageKm: 110000, powerKw: 120 },
+    { priceEur: 23000, mileageKm: 95000, powerKw: 130 },
+    { priceEur: 28000, mileageKm: 60000, powerKw: 140 },
+  ];
+  const out = estimateMarketValue(items, { mileageKm: 70000, powerKw: 140 });
+  assert.equal(out.marketValueMethod, 'mileage-power-regression');
+});
+
+test('finalizeComparison records the engine tier used', () => {
+  const items = [
+    { priceEur: 19000, powerKw: 140, displacementCm3: 1995, mileageKm: 90000, trimTier: 'base' },
+    { priceEur: 20000, powerKw: 138, displacementCm3: 1998, mileageKm: 85000, trimTier: 'base' },
+    { priceEur: 21000, powerKw: 142, displacementCm3: 2000, mileageKm: 80000, trimTier: 'base' },
+    { priceEur: 30000, powerKw: 190, displacementCm3: 2998, mileageKm: 70000, trimTier: 'base' }, // 330d, outside tight
+  ];
+  const out = finalizeComparison({
+    items,
+    source: 'olx.pt',
+    criteria: WINDOW,
+    listing: { model: '320', fuelType: 'Diesel', trimTier: 'base', powerKw: 140, displacementCm3: 1995, mileageKm: 85000 },
+  });
+  assert.equal(out.engineTier, 'tight');
+  assert.equal(out.matchedCriteria.engineTier, 'tight');
+  assert.equal(out.sampleSize, 3); // the 330d dropped from the benchmark
 });
 
 test('finalizeComparison withholds reliability below the minimum sample', () => {

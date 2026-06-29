@@ -14,6 +14,7 @@ import {
   inferEmissionStandard,
   slugify,
 } from '../normalize.js';
+import { classifyTrim } from '../../engine/trim.js';
 
 export const key = 'autoscout24';
 export const label = 'AutoScout24';
@@ -62,6 +63,10 @@ export function mapItem(item = {}, referenceYear) {
     fuelType: canonicalFuel(pick(item.fuel, item.fuelType, item.fuelCategory)),
     transmission: canonicalTransmission(pick(item.transmission, item.gearbox, item.transmissionType)),
     bodyType: pick(item.bodyType, item.category, item.vehicleType),
+    variant: pick(item.version, item.modelOrModelLine, null),
+    trimTier: classifyTrim(
+      [item.version, item.modelOrModelLine, item.model, item.modelName].filter(Boolean).join(' ')
+    ).tier,
     priceEur: intFrom(pick(item.price, item.priceValue, item.priceEur, item.rawPrice)),
     displacementCm3: intFrom(pick(item.displacement, item.cubicCapacity, item.engineSize)),
     powerKw: intFrom(pick(item.powerKw, item.kw, item.power)),

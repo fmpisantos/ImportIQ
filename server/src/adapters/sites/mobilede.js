@@ -14,6 +14,7 @@ import {
   parseYear,
   inferEmissionStandard,
 } from '../normalize.js';
+import { classifyTrim } from '../../engine/trim.js';
 
 export const key = 'mobilede';
 export const label = 'mobile.de';
@@ -73,6 +74,10 @@ export function mapItem(item = {}, referenceYear) {
     fuelType: canonicalFuel(pick(item.fuel, item.fuelType, item.fuelCategory)),
     transmission: canonicalTransmission(pick(item.gearbox, item.transmission)),
     bodyType: pick(item.category, item.bodyType, item.vehicleType),
+    variant: pick(item.modelDescription, item.version, null),
+    trimTier: classifyTrim(
+      [item.modelDescription, item.version, item.model, item.modelName].filter(Boolean).join(' ')
+    ).tier,
     priceEur: intFrom(
       pick(item.price?.consumerPriceGross, item.priceValue, item.price, item.priceEur, item.grossPrice)
     ),

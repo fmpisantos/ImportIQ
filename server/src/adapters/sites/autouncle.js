@@ -18,6 +18,7 @@ import {
   parseYear,
   inferEmissionStandard,
 } from '../normalize.js';
+import { classifyTrim } from '../../engine/trim.js';
 
 export const key = 'autouncle';
 export const label = 'AutoUncle';
@@ -72,6 +73,10 @@ export function mapItem(item = {}, referenceYear) {
     fuelType: canonicalFuel(pick(item.engineFuel, item.fuel, item.fuelType)),
     transmission: canonicalTransmission(pick(item.transmission, item.gearbox)),
     bodyType: pick(item.bodyType, item.category),
+    variant: pick(item.version, item.modelName, null),
+    trimTier: classifyTrim(
+      [item.version, item.model, item.modelName].filter(Boolean).join(' ')
+    ).tier,
     priceEur: intFrom(pick(item.priceValue, item.price, item.priceEur)),
     displacementCm3: intFrom(pick(item.displacement, item.engineSize, item.cubicCapacity)),
     powerKw: intFrom(pick(item.powerKw, item.power, item.kw)),

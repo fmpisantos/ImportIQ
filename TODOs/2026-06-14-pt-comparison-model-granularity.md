@@ -36,3 +36,7 @@ limiting factor.
   the user can eyeball a line mismatch.
 - Related: `2026-06-14-pt-comparison-mismatch-model-null-and-cache-collision.md`
   (DONE), `2026-06-13-pt-average-comparable-accuracy.md` (DONE).
+- 2026-06-29: the trim-tier work (`DONE/2026-06-29-trim-tier-comparison-matching.md`)
+  now captures the raw `variant` string onto the listing — the data lever this
+  TODO's Notes call for. A line-token requirement for known overlapping families
+  (mitigation (a)) could now key off `variant` instead of the collapsed `model`.

@@ -97,6 +97,15 @@ export function rejectPriceOutliers(items) {
 const POWER_TOLERANCE = 0.2; // ±20% on engine power (kW)
 const DISPLACEMENT_TOLERANCE = 0.15; // ±15% on displacement (cm³)
 
+// Tight "preferred" engine band (item C). The loose tolerances above admit
+// adjacent variants (a 318d/330d into a 320d pool); when ENOUGH comparables sit
+// within this tighter band AND actually publish their engine specs, we benchmark
+// off that tight, mechanically-identical set instead — falling back to the loose
+// set only when too few tight ones survive. Requires the field on both sides
+// (unlike the loose, field-tolerant gate): a missing spec isn't a tight match.
+const TIGHT_POWER_TOLERANCE = 0.12; // ±12% on engine power (kW)
+const TIGHT_DISPLACEMENT_TOLERANCE = 0.08; // ±8% on displacement (cm³)
+
 // Fewest distinct comparables a comparison needs before we'll stake a verdict on
 // its market value. One or two asking prices is anecdote, not a benchmark; below
 // this the comparison is flagged unreliable and no saving/verdict is shown.
@@ -142,6 +151,14 @@ export function comparableMatches(c, listing) {
   if (!withinTolerance(listing.powerKw, c.powerKw, POWER_TOLERANCE)) return false;
   if (!withinTolerance(listing.displacementCm3, c.displacementCm3, DISPLACEMENT_TOLERANCE))
     return false;
+  // Performance models (M3, RS6, AMG 63, GTI …) are a DIFFERENT car, not a
+  // pricier trim of the same one — averaging them with the base model wildly
+  // distorts the benchmark in either direction. So when exactly one side is a
+  // performance car, drop the comparable. Sport-appearance trims are NOT excluded
+  // here (they share the drivetrain); they're narrowed softly in finalizeComparison.
+  const subjPerf = listing.trimTier === 'performance';
+  const compPerf = c.trimTier === 'performance';
+  if (subjPerf !== compPerf) return false;
   return true;
 }
 
@@ -218,13 +235,77 @@ export function regressionEstimate(points, targetX, opts = {}) {
 }
 
 /**
- * Best central estimate of market value for the subject listing from a set of
- * comparables: a mileage regression predicted at the subject's mileage when the
- * fit is usable, else the median, else null. Returns the median too (always,
- * for display). Pure.
+ * Spec-normalized estimate (item D): a two-predictor OLS of price on mileage AND
+ * power, predicted at the SUBJECT's mileage+power — so a set that still spans a
+ * range of powers (e.g. 110–140 kW within the loose band) is corrected to the
+ * subject's actual output instead of pooling them. Closed-form 2×2 solve.
  *
- * @param {Array} items   comparables ({ priceEur, mileageKm? })
- * @param {object} listing  subject (uses listing.mileageKm)
+ * Only fires when the extra predictor is real: enough points, the power column
+ * genuinely varies (≥3 distinct values — otherwise it degenerates to the mileage
+ * fit), a non-singular system, a sane negative mileage slope, and a minimum R².
+ * The prediction is clamped to the observed price range so a steep coefficient
+ * can't extrapolate to nonsense. Returns null (caller falls back) otherwise. Pure.
+ *
+ * @param {Array<{x1:number,x2:number,y:number}>} points  x1=mileage, x2=power, y=price
+ * @param {{x1:number,x2:number}} target  subject mileage + power
+ */
+export function multiRegressionEstimate(points, target, opts = {}) {
+  const { minPoints = 8, minR2 = 0.2 } = opts;
+  const pts = points.filter(
+    (p) => Number.isFinite(p.x1) && Number.isFinite(p.x2) && Number.isFinite(p.y) && p.y > 0
+  );
+  if (pts.length < minPoints || !Number.isFinite(target.x1) || !Number.isFinite(target.x2)) {
+    return null;
+  }
+  if (new Set(pts.map((p) => p.x2)).size < 3) return null; // no real power variation
+
+  const m1 = mean(pts.map((p) => p.x1));
+  const m2 = mean(pts.map((p) => p.x2));
+  const my = mean(pts.map((p) => p.y));
+  let s11 = 0, s22 = 0, s12 = 0, s1y = 0, s2y = 0, syy = 0;
+  for (const p of pts) {
+    const d1 = p.x1 - m1;
+    const d2 = p.x2 - m2;
+    const dy = p.y - my;
+    s11 += d1 * d1;
+    s22 += d2 * d2;
+    s12 += d1 * d2;
+    s1y += d1 * dy;
+    s2y += d2 * dy;
+    syy += dy * dy;
+  }
+  const det = s11 * s22 - s12 * s12;
+  if (det === 0 || s22 === 0 || syy === 0) return null;
+  const b1 = (s22 * s1y - s12 * s2y) / det; // mileage coefficient
+  const b2 = (s11 * s2y - s12 * s1y) / det; // power coefficient
+  if (b1 >= 0) return null; // price must fall with mileage to be a real signal
+  const b0 = my - b1 * m1 - b2 * m2;
+
+  // R² from residuals of the full two-predictor fit.
+  let ssRes = 0;
+  for (const p of pts) ssRes += (p.y - (b0 + b1 * p.x1 + b2 * p.x2)) ** 2;
+  const r2 = 1 - ssRes / syy;
+  if (!(r2 >= minR2)) return null;
+
+  const ys = pts.map((p) => p.y);
+  const yhat = Math.max(
+    Math.min(...ys),
+    Math.min(Math.max(...ys), b0 + b1 * target.x1 + b2 * target.x2)
+  );
+  return yhat > 0 ? round2(yhat) : null;
+}
+
+/**
+ * Best central estimate of market value for the subject listing from a set of
+ * comparables, in descending order of preference:
+ *   1. a spec-normalized mileage+power regression at the subject's spec (item D),
+ *   2. a mileage-only regression at the subject's mileage,
+ *   3. the median,
+ *   4. null.
+ * Returns the median too (always, for display). Pure.
+ *
+ * @param {Array} items   comparables ({ priceEur, mileageKm?, powerKw? })
+ * @param {object} listing  subject (uses listing.mileageKm, listing.powerKw)
  */
 export function estimateMarketValue(items, listing = {}) {
   const prices = items.map(priceVal).filter((p) => Number.isFinite(p) && p > 0);
@@ -232,6 +313,21 @@ export function estimateMarketValue(items, listing = {}) {
     return { marketValueEur: null, marketValueMethod: 'none', medianPriceEur: null };
   }
   const med = round2(median(prices));
+
+  // (1) Spec-normalized: correct for the subject's actual power, not just mileage.
+  if (listing.powerKw > 0) {
+    const mpoints = items
+      .map((l) => ({ x1: Number(l.mileageKm), x2: Number(l.powerKw), y: priceVal(l) }))
+      .filter((p) => Number.isFinite(p.x1) && p.x1 >= 0 && Number.isFinite(p.x2) && p.x2 > 0);
+    const multi = multiRegressionEstimate(mpoints, {
+      x1: Number(listing.mileageKm),
+      x2: Number(listing.powerKw),
+    });
+    if (multi != null) {
+      return { marketValueEur: multi, marketValueMethod: 'mileage-power-regression', medianPriceEur: med };
+    }
+  }
+
   const points = items
     .map((l) => ({ x: Number(l.mileageKm), y: priceVal(l) }))
     .filter((p) => Number.isFinite(p.x) && p.x >= 0);
@@ -243,6 +339,131 @@ export function estimateMarketValue(items, listing = {}) {
 }
 
 /**
+ * Prefer same-trim-tier comparables for the subject, falling back to the full
+ * set when too few share its tier. Returns the chosen items plus transparency:
+ * the subject's `trimTier`, whether narrowing actually happened (`trimMatched`),
+ * and the per-tier counts of the full matched set. Pure.
+ *
+ * `trimMatched`:
+ *   - true  → narrowed to same-tier comparables (a true like-for-like benchmark);
+ *   - false → not enough same-tier comparables, using the mixed set (treat the
+ *             verdict with more caution — trims may differ);
+ *   - null  → subject tier unknown, no narrowing attempted.
+ */
+export function selectByTrim(items, listing = {}) {
+  const tier = listing.trimTier;
+  const breakdown = { base: 0, sport: 0, performance: 0 };
+  for (const i of items) {
+    const t = i.trimTier ?? 'base';
+    if (t in breakdown) breakdown[t] += 1;
+  }
+  if (!tier) return { items, trimTier: null, trimMatched: null, trimBreakdown: breakdown };
+
+  const same = items.filter((i) => (i.trimTier ?? 'base') === tier);
+  if (same.length >= MIN_RELIABLE_SAMPLE) {
+    return { items: same, trimTier: tier, trimMatched: true, trimBreakdown: breakdown };
+  }
+  return { items, trimTier: tier, trimMatched: false, trimBreakdown: breakdown };
+}
+
+/**
+ * Prefer comparables inside the TIGHT engine band (item C), falling back to the
+ * full set when too few qualify. A "tight" comparable must publish BOTH engine
+ * fields and sit within ±12% power / ±8% displacement of the subject — so the
+ * benchmark is built from the same mechanical variant, not adjacent ones. When
+ * the subject itself lacks engine specs, no tightening is possible (engineTier
+ * null). Returns the chosen items + which band produced them. Pure.
+ */
+export function selectByEngineTier(items, listing = {}) {
+  const subjectHasSpec = listing.powerKw > 0 && listing.displacementCm3 > 0;
+  if (!subjectHasSpec) return { items, engineTier: null };
+
+  const inTightBand = (c) =>
+    c.powerKw > 0 &&
+    c.displacementCm3 > 0 &&
+    Math.abs(listing.powerKw - c.powerKw) <= TIGHT_POWER_TOLERANCE * Math.max(listing.powerKw, c.powerKw) &&
+    Math.abs(listing.displacementCm3 - c.displacementCm3) <=
+      TIGHT_DISPLACEMENT_TOLERANCE * Math.max(listing.displacementCm3, c.displacementCm3);
+
+  const tight = items.filter(inTightBand);
+  if (tight.length >= MIN_RELIABLE_SAMPLE) return { items: tight, engineTier: 'tight' };
+  return { items, engineTier: 'loose' };
+}
+
+/**
+ * Relative price dispersion of a comparable set — how tightly the asking prices
+ * cluster. A narrow band is a trustworthy benchmark; a wide one means the
+ * "market value" is really an average over dissimilar cars (different extras,
+ * conditions, optimistic asks), so a headline saving off it is fragile.
+ *
+ * Reports the robust IQR width as a fraction of the median (`relIqr`) plus the
+ * raw min/max, or null below 4 priced items (can't locate quartiles). Pure.
+ */
+export function priceDispersion(items) {
+  const prices = items.map(priceVal).filter((p) => Number.isFinite(p) && p > 0).sort((a, b) => a - b);
+  if (prices.length < 4) return null;
+  const quantile = (p) => {
+    const idx = (prices.length - 1) * p;
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    return prices[lo] + (prices[hi] - prices[lo]) * (idx - lo);
+  };
+  const med = median(prices);
+  const q1 = quantile(0.25);
+  const q3 = quantile(0.75);
+  return {
+    relIqr: med > 0 ? round2((q3 - q1) / med) : null,
+    minPriceEur: prices[0],
+    maxPriceEur: prices[prices.length - 1],
+  };
+}
+
+/**
+ * How many comparables backing the benchmark were matched on ENGINE (power +
+ * displacement both published on both sides, hence in-tolerance) vs admitted on
+ * model family alone because a field was missing. A low ratio — or a subject
+ * that itself lacks engine specs — means the matcher couldn't actually verify
+ * the cars are the same mechanical variant. Pure.
+ */
+export function engineMatchStats(items, listing = {}) {
+  const subjectHasSpec = listing.powerKw > 0 && listing.displacementCm3 > 0;
+  let matched = 0;
+  if (subjectHasSpec) {
+    for (const c of items) {
+      if (c.powerKw > 0 && c.displacementCm3 > 0) matched += 1;
+    }
+  }
+  const total = items.length;
+  return { matched, total, ratio: total ? round2(matched / total) : 0, subjectHasSpec };
+}
+
+/**
+ * Grade overall confidence in the benchmark from the signals that make a PT
+ * "market value" trustworthy: a real sample, engine-verified comparables, a
+ * same-trim set, and tightly-clustered prices. Returns a level plus the specific
+ * factors that dragged it down, so the UI can explain *why* a saving is shaky
+ * rather than just showing a number. Pure.
+ *
+ * Demerit model (transparent over clever): each weak signal adds points;
+ * 0 ⇒ 'high', 1–2 ⇒ 'medium', ≥3 ⇒ 'low'. A very wide price spread counts double
+ * because it most directly undermines the headline number.
+ */
+export function gradeConfidence({ sampleSize, engine, dispersion, trimMatched }) {
+  const factors = [];
+  let demerits = 0;
+  if (sampleSize < 5) { factors.push('small-sample'); demerits += 1; }
+  if (!engine.subjectHasSpec) { factors.push('subject-engine-spec-missing'); demerits += 1; }
+  else if (engine.ratio < 0.5) { factors.push('mostly-model-only-match'); demerits += 1; }
+  if (trimMatched === false) { factors.push('trim-not-matched'); demerits += 1; }
+  if (dispersion?.relIqr != null) {
+    if (dispersion.relIqr > 0.5) { factors.push('very-high-price-spread'); demerits += 2; }
+    else if (dispersion.relIqr > 0.3) { factors.push('high-price-spread'); demerits += 1; }
+  }
+  const level = demerits >= 3 ? 'low' : demerits >= 1 ? 'medium' : 'high';
+  return { level, factors };
+}
+
+/**
  * Turn a set of matched comparables into the full comparison object every PT
  * source returns: IQR-trims, averages (mean, kept as `avgPriceEur` for
  * back-compat), adds the robust `marketValueEur` + method + median, the matched
@@ -250,9 +471,31 @@ export function estimateMarketValue(items, listing = {}) {
  * source-specific extras (searchUrl, per-source breakdown). Pure.
  */
 export function finalizeComparison({ items, source, criteria, listing = {} }) {
-  const trimmed = rejectPriceOutliers(items);
+  // Like-for-like trim narrowing: prefer comparables of the SAME trim tier as the
+  // subject (base→base, sport→sport), so a base car isn't valued against pricier
+  // sport trims (the phantom-profit failure mode). Only narrow when enough
+  // same-tier comparables survive to stay a real sample; otherwise fall back to
+  // the full set and flag `trimMatched: false` so the caller can soften the
+  // verdict. A subject with no known tier skips this entirely (trimMatched null).
+  const trimSelection = selectByTrim(items, listing);
+  // Then tighten the engine band within that trim-selected set (item C): prefer
+  // mechanically-identical comparables (±12% power / ±8% displacement), falling
+  // back to the loose set when too few qualify. engineTier records which was used.
+  const engineSelection = selectByEngineTier(trimSelection.items, listing);
+  const trimmed = rejectPriceOutliers(engineSelection.items);
   const summary = summarise(trimmed, source, criteria);
   const estimate = estimateMarketValue(trimmed, listing);
+
+  // Match-quality + dispersion confidence (computed over the SAME set backing the
+  // benchmark) so the saving is presented with how much to trust it.
+  const dispersion = priceDispersion(trimmed);
+  const engine = engineMatchStats(trimmed, listing);
+  const grade = gradeConfidence({
+    sampleSize: summary.sampleSize,
+    engine,
+    dispersion,
+    trimMatched: trimSelection.trimMatched,
+  });
   // A comparison is only trustworthy on TWO counts:
   //   1. we could narrow by model — without one the matcher falls back to
   //      brand+year, pulling in unrelated cars (a small van vs pickups);
@@ -273,7 +516,17 @@ export function finalizeComparison({ items, source, criteria, listing = {} }) {
       model: listing.model ?? null,
       fuelType: listing.fuelType ?? null,
       transmission: listing.transmission ?? null,
+      trimTier: trimSelection.trimTier,
+      engineTier: engineSelection.engineTier,
     },
+    trimTier: trimSelection.trimTier,
+    trimMatched: trimSelection.trimMatched,
+    trimBreakdown: trimSelection.trimBreakdown,
+    engineTier: engineSelection.engineTier,
+    dispersion,
+    engineMatch: engine,
+    confidence: grade.level,
+    confidenceFactors: grade.factors,
     reliable,
     unreliableReason: !hasModel
       ? 'model-unknown'

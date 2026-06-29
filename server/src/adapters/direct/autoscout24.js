@@ -22,6 +22,7 @@ import {
   slugify,
 } from '../normalize.js';
 import { normaliseFuel } from '../../engine/isv.js';
+import { classifyTrim, strongerTier } from '../../engine/trim.js';
 import { missingListingFields, missingTaxRefinements } from '../../engine/landedCost.js';
 
 const BASE_URL = 'https://www.autoscout24.de';
@@ -210,6 +211,13 @@ export function mapListing(card = {}, referenceYear) {
     // values; body filtering happens server-side via the `body` URL param, so
     // leave this null rather than have the post-filter wrongly drop listings.
     bodyType: null,
+    // Full trim string ("320d M Sport") + its coarse tier, kept so the PT
+    // comparison matches base-vs-base / sport-vs-sport instead of averaging a
+    // base car against pricier sport trims (see engine/trim.js).
+    variant: pick(vehicle.variant, null),
+    trimTier: classifyTrim(
+      [vehicle.variant, vehicle.model, vehicle.modelGroup].filter(Boolean).join(' ')
+    ).tier,
     priceEur: intFrom(pick(tracking.price, card.price?.priceFormatted)),
     displacementCm3: intFrom(vehicle.engineDisplacementInCCM),
     powerKw: unitInt(detailByIcon(card, 'speedometer'), /([\d.,]+)\s*kW/i),
@@ -401,8 +409,18 @@ export async function enrichListing(listing, opts = {}) {
     particleEmissionsGKm = vehicle.hasParticleFilter ? 0 : NON_DPF_PARTICLES_GKM;
   }
 
+  // The detail page's `variant` is usually fuller than the card's — re-classify
+  // and keep whichever tier is stronger, so a sport/performance trim the card
+  // omitted isn't lost (only ever upgrades; never downgrades a card hit).
+  const detailVariant = pick(vehicle.variant, vehicle.modelVersionInput, null);
+  const trimTier = detailVariant
+    ? strongerTier(listing.trimTier ?? 'base', classifyTrim(detailVariant).tier)
+    : listing.trimTier;
+
   const enriched = {
     ...listing,
+    variant: pick(detailVariant, listing.variant),
+    trimTier,
     co2GKm,
     powerKw: listing.powerKw ?? intFrom(vehicle.rawPowerInKw),
     displacementCm3: listing.displacementCm3 ?? intFrom(vehicle.rawDisplacementInCCM),
