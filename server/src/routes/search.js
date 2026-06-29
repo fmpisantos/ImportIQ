@@ -6,7 +6,12 @@
 //   GET  /api/brands       → brand → models map for the filter dropdowns.
 
 import { Router } from 'express';
-import { searchListingsPaged, enrichListings, listBrandsAndModels } from '../adapters/source.js';
+import {
+  searchListingsPaged,
+  searchListingsPagedComputed,
+  enrichListings,
+  listBrandsAndModels,
+} from '../adapters/source.js';
 import { getComparison } from '../adapters/ptmarket.js';
 import { buildConfigView, getDealsPage } from '../db.js';
 import { computeLandedCost, attachComparison } from '../engine/landedCost.js';
@@ -43,6 +48,16 @@ const LIVE_SORT_MAP = {
   mileage: { sort: 'mileage', desc: 0 },
 };
 
+// Computed sorts can't be ordered source-side (they depend on our landed-cost +
+// PT calc), so the live path ranks the whole reachable pool instead of a single
+// page. `value` reads the ranking key off a computed result; `desc` is the
+// direction (savings/margin high→low, landed low→high).
+const COMPUTED_SORT_SPEC = {
+  saving: { value: (r) => r.savingEur, desc: 1 },
+  margin: { value: (r) => r.marginEur, desc: 1 },
+  landed: { value: (r) => r.totalLandedCostEur, desc: 0 },
+};
+
 router.post('/search', async (req, res, next) => {
   try {
     const filters = req.body ?? {};
@@ -74,6 +89,7 @@ router.post('/search', async (req, res, next) => {
         pageSize,
         total,
         totalPages,
+        totalAvailable: null, // store total is exact — no "first N of M" headroom
         count: results.length,
         results,
       });
@@ -82,27 +98,60 @@ router.post('/search', async (req, res, next) => {
 
     // --- Escape hatch (?live=1): paginated live scrape for one query on demand -
     const reference = { referenceYear: now.getFullYear(), referenceMonth: now.getMonth() + 1 };
-    const liveSort = LIVE_SORT_MAP[filters.sort] ?? { sort: 'standard', desc: 0 };
-    const paged = await searchListingsPaged(filters, {
-      now: now.getTime(),
-      page,
-      pageSize,
-      sort: liveSort.sort,
-      desc: liveSort.desc,
-    });
-    const pageSlice = paged.listings;
-    const total = paged.totalResults;
-    const totalPages = paged.totalPages;
 
-    const enriched = await enrichListings(pageSlice, { now: now.getTime() });
-    const computedResults = await Promise.all(
-      enriched.map(async (listing) => {
-        const computed = computeLandedCost(listing, config, reference);
-        const comparison = await getComparison(listing);
-        return attachComparison(computed, comparison, { resaleHaircutPct });
-      })
-    );
-    const results = annotateGermanPriceSanity(computedResults);
+    // Cost one listing into a full result, never throwing — a PT hiccup for one
+    // car shouldn't sink the page (it's costed with a null comparison instead).
+    const costOne = async (listing) => {
+      const computed = computeLandedCost(listing, config, reference);
+      let comparison = null;
+      try {
+        comparison = await getComparison(listing);
+      } catch {
+        comparison = null;
+      }
+      return attachComparison(computed, comparison, { resaleHaircutPct });
+    };
+
+    const computedSpec = COMPUTED_SORT_SPEC[filters.sort];
+    let results;
+    let total;
+    let totalPages;
+    let totalAvailable;
+
+    if (computedSpec) {
+      // Computed sort → rank the whole reachable pool, then slice the page.
+      const paged = await searchListingsPagedComputed(filters, {
+        now: now.getTime(),
+        page,
+        pageSize,
+        sort: filters.sort,
+        desc: computedSpec.desc,
+        configVersion: config.version,
+        costOne,
+        sortValue: computedSpec.value,
+      });
+      results = annotateGermanPriceSanity(paged.results);
+      total = paged.total;
+      totalPages = paged.totalPages;
+      totalAvailable = paged.totalAvailable ?? null;
+    } else {
+      // Source-orderable sort (german/year/mileage/default) → cheap per-page
+      // scrape; AS24 sorts the full result set, so paging is already global.
+      const liveSort = LIVE_SORT_MAP[filters.sort] ?? { sort: 'standard', desc: 0 };
+      const paged = await searchListingsPaged(filters, {
+        now: now.getTime(),
+        page,
+        pageSize,
+        sort: liveSort.sort,
+        desc: liveSort.desc,
+      });
+      const enriched = await enrichListings(paged.listings, { now: now.getTime() });
+      const computedResults = await Promise.all(enriched.map(costOne));
+      results = annotateGermanPriceSanity(computedResults);
+      total = paged.totalResults;
+      totalPages = paged.totalPages;
+      totalAvailable = paged.totalAvailable ?? null;
+    }
 
     res.json({
       ranAt: now.toISOString(),
@@ -114,6 +163,7 @@ router.post('/search', async (req, res, next) => {
       pageSize,
       total,
       totalPages,
+      totalAvailable,
       count: results.length,
       results,
     });

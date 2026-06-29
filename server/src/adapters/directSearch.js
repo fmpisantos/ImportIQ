@@ -69,6 +69,32 @@ function livePageCacheKey(filters, { sort = 'standard', desc = 0, page = 1, page
   return `direct:as24:livepage:${JSON.stringify(relevantFilters(filters, { sort, desc, page, pageSize }))}`;
 }
 
+// Computed sorts (saving/margin/landed) can't be ordered source-side, so the
+// whole reachable pool is fetched, costed and ranked once, then every UI page
+// slices that ranked list. The cache holds the ranked+costed pool, keyed by
+// filters + sort + the config version (a Config edit changes the landed cost,
+// so it must invalidate — mirrors the batch ingest's config-version gate).
+function computedCacheKey(filters, { sort = 'standard', desc = 0, configVersion = '' } = {}) {
+  return `direct:as24:computed:${JSON.stringify(relevantFilters(filters, { sort, desc, configVersion }))}`;
+}
+
+/**
+ * Order a list of *computed results* by a numeric key, nulls always last
+ * (incomplete listings — no saving/landed — sink regardless of direction).
+ * Array.sort is stable, so ties keep their incoming order. Pure.
+ */
+export function sortComputedNullsLast(computed, sortValue, desc) {
+  const rank = (v) => (v == null || Number.isNaN(v) ? null : v);
+  return [...computed].sort((a, b) => {
+    const av = rank(sortValue(a));
+    const bv = rank(sortValue(b));
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return desc ? bv - av : av - bv;
+  });
+}
+
 // Run `worker` over items with bounded concurrency — enough to keep detail
 // enrichment quick, low enough to look like a person browsing.
 async function mapPool(items, concurrency, worker) {
@@ -161,16 +187,16 @@ export async function enrichOneCached(listing, { now = Date.now(), fetchBudget =
   return result;
 }
 
-async function enrichMissingCo2(listings, cfg, now) {
+async function enrichMissingCo2(listings, cfg, now, limit = cfg.enrichLimit) {
   // Only AutoScout24 listings can be enriched from their detail page; don't
   // let other sources' gaps eat the enrich budget. A car qualifies when the
   // detail page could fill a required field (CO₂/displacement) or a tax
   // refinement (diesel particles, PHEV range).
   const needs = listings.filter(needsDetailFetch);
-  const targets = needs.slice(0, cfg.enrichLimit);
+  const targets = needs.slice(0, limit);
   if (needs.length > targets.length) {
     console.warn(
-      `[direct] ${needs.length} listings need detail enrichment; enriching first ${targets.length} (DIRECT_ENRICH_LIMIT)`
+      `[direct] ${needs.length} listings need detail enrichment; enriching first ${targets.length} (limit ${limit})`
     );
   }
 
@@ -351,12 +377,18 @@ export async function searchListingsDirectPage(filters = {}, opts = {}) {
   // the reachable pages to that so the UI's Next button stops at real inventory.
   const reachablePages = Math.min(AS24_MAX_PAGES, window.numberOfPages ?? AS24_MAX_PAGES);
   const totalPages = Math.max(1, Math.ceil(reachablePages / pagesPerUiPage));
+  // Only ~400 cards (20 pages × 20) are ever pageable, so report the *reachable*
+  // count as the total (keeps it consistent with totalPages); carry AS24's raw
+  // match count separately so the UI can say "first 400 of 1,234".
+  const reachableResults = reachablePages * AS24_PAGE_SIZE;
+  const rawResults = window.numberOfResults ?? listings.length;
   return {
     listings: dedupeListings(listings),
     page,
     pageSize,
     totalPages,
-    totalResults: window.numberOfResults ?? listings.length,
+    totalResults: Math.min(rawResults, reachableResults),
+    totalAvailable: window.numberOfResults ?? null,
   };
 }
 
@@ -372,5 +404,80 @@ export async function searchListingsDirectPage(filters = {}, opts = {}) {
  */
 export async function enrichListingsDirect(listings, opts = {}) {
   const now = opts.now ?? Date.now();
-  return enrichMissingCo2(listings, getDirectConfig(), now);
+  const cfg = getDirectConfig();
+  // `limit` lets the computed-sort path enrich the *whole* reachable pool (so no
+  // listing wrongly sinks as `incomplete`); the per-page UI path keeps the
+  // smaller DIRECT_ENRICH_LIMIT default.
+  return enrichMissingCo2(listings, cfg, now, opts.limit ?? cfg.enrichLimit);
+}
+
+/**
+ * Paginated live search ordered by a *computed* key (saving/margin/landed) — the
+ * values AS24 can't sort by because they come from our landed-cost + PT calc. So
+ * unlike searchListingsDirectPage (scrape one page, cost it), this fetches the
+ * whole reachable pool (≤400 cards), enriches and costs ALL of it, ranks it
+ * globally, then slices the requested page. The ranked+costed pool is cached 12h
+ * (keyed by filters+sort+config version), so the first request is heavy but
+ * pages 2..N — and repeat searches within 12h — slice from cache instantly.
+ *
+ * The caller supplies the engine/PT work as callbacks so this stays
+ * source-agnostic:
+ *   - `costOne(listing) → Promise<computedResult>` (must never throw),
+ *   - `sortValue(result) → number|null` + `desc` (the ranking key/direction).
+ *
+ * @returns {Promise<{ results, page, pageSize, total, totalPages, totalAvailable }>}
+ *   where `results` are fully-computed result objects (NOT raw listings).
+ */
+export async function searchListingsDirectPageComputed(filters = {}, opts = {}) {
+  const now = opts.now ?? Date.now();
+  const referenceYear = filters.referenceYear ?? new Date(now).getFullYear();
+  const cfg = getDirectConfig();
+  const page = Math.max(1, Number(opts.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(opts.pageSize) || 50));
+  const sort = opts.sort ?? 'standard';
+  const desc = opts.desc === 1 || opts.desc === '1' || opts.desc === true ? 1 : 0;
+  const { costOne, sortValue, configVersion = '' } = opts;
+  const poolCap = AS24_PAGE_SIZE * AS24_MAX_PAGES; // 400 — AS24's hard ceiling
+
+  const key = computedCacheKey(filters, { sort, desc, configVersion });
+  let cached = getCached('listings_cache', key, LIVE_PAGE_TTL_MS, now);
+  if (!cached) {
+    // Full reachable pool (deduped + filtered), then enrich every card so none
+    // sinks as incomplete, then cost all and rank globally.
+    const pool = await searchListingsDirect(filters, { now, maxResults: poolCap });
+    const enriched = await enrichListingsDirect(pool, { now, limit: pool.length });
+    const costed = await mapPool(enriched, 4, (l) => costOne(l));
+    const computed = sortComputedNullsLast(costed, sortValue, desc === 1);
+
+    // Best-effort raw AS24 match count for the "first N of M" display — one
+    // cheap head read, negligible next to the pool scrape + enrich + PT work.
+    let totalAvailable = null;
+    try {
+      const head = await fetchAutoScout24Page(filters, {
+        page: 1,
+        sort: 'standard',
+        desc: 0,
+        country: cfg.autoscout24Country,
+        referenceYear,
+      });
+      totalAvailable = head.numberOfResults ?? null;
+    } catch {
+      /* the ranked pool is what matters; the headline count is optional */
+    }
+
+    cached = { computed, totalAvailable };
+    setCached('listings_cache', key, cached, now);
+  }
+
+  const { computed, totalAvailable } = cached;
+  const total = computed.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return {
+    results: computed.slice((page - 1) * pageSize, page * pageSize),
+    page,
+    pageSize,
+    total,
+    totalPages,
+    totalAvailable,
+  };
 }

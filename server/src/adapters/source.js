@@ -17,6 +17,8 @@ import { searchListingsApify } from './apifySearch.js';
 import {
   searchListingsDirect,
   searchListingsDirectPage,
+  searchListingsDirectPageComputed,
+  sortComputedNullsLast,
   enrichListingsDirect,
   enrichOneCached,
 } from './directSearch.js';
@@ -53,6 +55,46 @@ export async function searchListingsPaged(filters = {}, opts = {}) {
     pageSize,
     totalPages: Math.max(1, Math.ceil(pool.length / pageSize)),
     totalResults: pool.length,
+    totalAvailable: pool.length,
+  };
+}
+
+/**
+ * Paginated live search ordered by a *computed* key (saving/margin/landed).
+ * These depend on our landed-cost + PT calc, which no source can sort by, so the
+ * whole reachable pool must be costed and ranked before slicing a page. The
+ * `direct` source does this with a 12h ranked-pool cache (see
+ * searchListingsDirectPageComputed); other sources cost their (small) pool each
+ * request. The engine/PT work is injected via callbacks so this stays
+ * source-agnostic:
+ *   - `costOne(listing) → Promise<computedResult>` (must never throw),
+ *   - `sortValue(result) → number|null` + `desc` (ranking key/direction).
+ *
+ * @returns {Promise<{ results, page, pageSize, total, totalPages, totalAvailable }>}
+ *   `results` are fully-computed result objects, already ranked + sliced.
+ */
+export async function searchListingsPagedComputed(filters = {}, opts = {}) {
+  const page = Math.max(1, Number(opts.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(opts.pageSize) || 50));
+  const { costOne, sortValue } = opts;
+  const desc = opts.desc === 1 || opts.desc === '1' || opts.desc === true;
+
+  if (getDataSource() === 'direct') {
+    return searchListingsDirectPageComputed(filters, { ...opts, page, pageSize });
+  }
+
+  // Non-direct: fetch the pool (already carries specs), cost all, rank, slice.
+  const pool = await searchListings(filters, { now: opts.now });
+  const costed = await Promise.all(pool.map((l) => costOne(l)));
+  const computed = sortComputedNullsLast(costed, sortValue, desc);
+  const total = computed.length;
+  return {
+    results: computed.slice((page - 1) * pageSize, page * pageSize),
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    totalAvailable: total,
   };
 }
 

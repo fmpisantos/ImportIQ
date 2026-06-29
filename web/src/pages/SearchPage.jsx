@@ -87,7 +87,11 @@ export default function SearchPage() {
         <div className="results-section">
           <div className="results-toolbar">
             <span>
-              {data.total ?? data.count} result{(data.total ?? data.count) === 1 ? '' : 's'}
+              {data.totalAvailable && data.totalAvailable > (data.total ?? 0) ? (
+                <>first {data.total} of {data.totalAvailable} results</>
+              ) : (
+                <>{data.total ?? data.count} result{(data.total ?? data.count) === 1 ? '' : 's'}</>
+              )}
               {totalPages > 1 && ` · page ${page}/${totalPages}`} ·{' '}
               {isLive ? 'live scrape' : 'deal store'} · active transport:{' '}
               {data.activeTransportMethod ?? 'unset'}
