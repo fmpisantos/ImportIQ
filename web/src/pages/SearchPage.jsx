@@ -30,7 +30,8 @@ export default function SearchPage() {
     try {
       const result = await api.runSearch({ ...baseFilters, page, pageSize: PAGE_SIZE, sort: sortKey, live });
       setData(result);
-      if (page > 1) window.scrollTo({ top: 0, behavior: 'smooth' });
+      // A new page is fresh content — snap to the top so the first items are visible.
+      window.scrollTo({ top: 0, behavior: 'auto' });
     } catch (e) {
       setError(e.message);
     } finally {
