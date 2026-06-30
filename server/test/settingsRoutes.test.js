@@ -67,8 +67,8 @@ const overrideRows = () =>
 
 test('GET returns defaults with correct provenance when nothing is set', async () => {
   const body = await getSettings();
-  assert.equal(body.dataSource, 'mock');
-  assert.deepEqual(body.fields.data_source, { value: 'mock', source: 'default' });
+  assert.equal(body.dataSource, 'direct');
+  assert.deepEqual(body.fields.data_source, { value: 'direct', source: 'default' });
   assert.deepEqual(body.fields.direct_max_results, { value: '60', source: 'default' });
   assert.deepEqual(body.fields.apify_token, { secret: true, set: false, hint: '', source: 'unset' });
   assert.deepEqual(body.fields.mobilede_user, { value: '', source: 'unset' });
@@ -110,11 +110,13 @@ test('PUT with a blank secret leaves the stored secret untouched', async () => {
 });
 
 test('PUT clear deletes overrides and falls back to the default', async () => {
-  await put({ updates: { data_source: 'direct', apify_token: 'tok_to_clear_1' } });
+  // Override with a non-default value so clearing visibly reverts to the default
+  // ('direct'); 'direct' itself would be indistinguishable from the default.
+  await put({ updates: { data_source: 'official', apify_token: 'tok_to_clear_1' } });
   const res = await put({ clear: ['data_source', 'apify_token'] });
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.equal(body.fields.data_source.value, 'mock');
+  assert.equal(body.fields.data_source.value, 'direct');
   assert.equal(body.fields.data_source.source, 'default');
   assert.equal(body.fields.apify_token.set, false);
   assert.equal(overrideRows().length, 0);
@@ -170,7 +172,7 @@ test('data_source resolves override over env over default', async () => {
     assert.equal(getDataSource(), 'official'); // back to env
 
     delete process.env.DATA_SOURCE;
-    assert.equal(getDataSource(), 'mock'); // back to default
+    assert.equal(getDataSource(), 'direct'); // back to default
   } finally {
     delete process.env.DATA_SOURCE;
   }
@@ -203,6 +205,9 @@ const testConnection = async () => {
 };
 
 test('POST /test in mock mode passes without any network', async () => {
+  // `direct` is the default now, so opt into mock explicitly to exercise the
+  // offline probe path (beforeEach clears this override for the next test).
+  await put({ updates: { data_source: 'mock' } });
   const { status, body } = await testConnection();
   assert.equal(status, 200);
   assert.equal(body.ok, true);

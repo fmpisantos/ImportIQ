@@ -18,7 +18,10 @@ const router = Router();
 // Field catalogue: which runtime keys exist, their env fallback, defaults, and
 // whether the value is a secret (masked in GET, never echoed back).
 const FIELDS = [
-  { key: 'data_source', env: 'DATA_SOURCE', default: 'mock' },
+  // Keep in sync with config.js getDataSource() — the live-scraping `direct`
+  // path is the default; the field catalogue must report the same default so the
+  // Settings UI doesn't show 'mock' while the system actually runs 'direct'.
+  { key: 'data_source', env: 'DATA_SOURCE', default: 'direct' },
   { key: 'direct_max_results', env: 'DIRECT_MAX_RESULTS', default: '60' },
   { key: 'apify_token', env: 'APIFY_TOKEN', secret: true },
   { key: 'apify_sites', env: 'APIFY_SITES', default: 'mobilede,autoscout24,autouncle' },

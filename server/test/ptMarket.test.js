@@ -121,6 +121,24 @@ test('comparableMatches keeps a more-specific trim of the subject family', () =>
   assert.equal(comparableMatches(c, SUBJECT), true);
 });
 
+test('comparableMatches falls back to the title when the structured model is absent', () => {
+  // OLX leaves `modelo` null on whole model lines (911s, Cayennes), so a brand
+  // search drags them into a Panamera benchmark unless the title gates them out.
+  const subject = { model: 'Panamera', fuelType: 'Petrol' };
+  // Same brand, missing structured model, WRONG line in the title → dropped.
+  assert.equal(
+    comparableMatches({ model: null, title: 'Porsche 911 (992) Turbo S PDK', fuel: 'Petrol' }, subject),
+    false
+  );
+  // Same brand, missing structured model, RIGHT line in the title → kept.
+  assert.equal(
+    comparableMatches({ model: null, title: 'Porsche Panamera 4S E-Hybrid', fuel: 'Petrol' }, subject),
+    true
+  );
+  // Neither structured model nor title → can't prove a mismatch, stays kept.
+  assert.equal(comparableMatches({ model: null, fuel: 'Petrol' }, subject), true);
+});
+
 test('comparableMatches does NOT match up to a broader, costlier model line', () => {
   // The Velar regression: a flagship "Range Rover" must not match a
   // "Range Rover Velar" subject just because the subject contains "range rover".

@@ -101,13 +101,15 @@ over the REST API.
 nothing else knows which source is live. `DATA_SOURCE` (resolved in `config.js`)
 selects one of four modes:
 
-- **`mock`** (default) — deterministic sample data, no credentials.
-- **`direct`** — keyless live scraping: AutoScout24 search pages
+- **`mock`** — deterministic sample data, no credentials.
+- **`direct`** (default) — keyless live scraping: AutoScout24 search pages
   (`adapters/direct/autoscout24.js`, JSON embedded in `__NEXT_DATA__`) for
   listings, orchestrated by `adapters/directSearch.js`. PT comparison is
   multi-source — OLX.pt's open API (`adapters/direct/olxpt.js`) + Standvirtual
   (`adapters/direct/standvirtual.js`) merged in `adapters/direct/ptComparison.js`
-  (`PT_SOURCES`, default `olx,standvirtual`). Recommended real-data path.
+  (`PT_SOURCES`, default `olx,standvirtual`). Recommended real-data path, and the
+  default — keep `config.js` getDataSource() and the `routes/settings.js` field
+  catalogue in sync if this changes.
 - **`official`** — real mobile.de Search API (`adapters/mobilede.js`, B2B creds).
 - **`apify`** — paid scraping of mobile.de / AutoScout24 / AutoUncle via Apify
   Store actors (`adapters/apifySearch.js` + `adapters/sites/*.js`).

@@ -132,14 +132,26 @@ function withinTolerance(a, b, tol) {
  * leniency we want — comparable "320d"/"320 d AMG" matches a "320" family
  * subject — without matching *up* to a broader, costlier model. Pure.
  *
- * Comparable shape: { priceEur, model?, fuel?, transmission?, powerKw?,
+ * Model identity is NOT field-tolerant. PT sources return the whole brand
+ * category (OLX's free-text `query` barely filters, and a brand-only search has
+ * no model param at all), so admitting every comparable whose structured model
+ * is absent pulls in different model lines entirely — a Panamera subject was
+ * benchmarked against 911s and Cayennes because OLX leaves `modelo` null on
+ * those. So when the comparable has no structured `model`, fall back to its ad
+ * `title` (which always carries the model — "Porsche 911 (992) …"); only skip
+ * the gate when the comparable exposes NEITHER. Engine/fuel/transmission below
+ * stay field-tolerant — those are tolerance bands, model is identity.
+ *
+ * Comparable shape: { priceEur, model?, title?, fuel?, transmission?, powerKw?,
  *   displacementCm3? }. The subject is a normalised listing (powerKw in kW).
  */
 export function comparableMatches(c, listing) {
-  if (listing.model && c.model) {
-    const cm = norm(c.model);
-    const candidates = [norm(listing.model), norm(normalizeModelKey(listing.model))];
-    if (!candidates.some((x) => x && cm.includes(x))) return false;
+  if (listing.model) {
+    const modelText = norm(c.model || c.title); // structured model, else the ad title
+    if (modelText) {
+      const candidates = [norm(listing.model), norm(normalizeModelKey(listing.model))];
+      if (!candidates.some((x) => x && modelText.includes(x))) return false;
+    }
   }
   if (listing.fuelType && c.fuel && norm(c.fuel) !== norm(listing.fuelType)) return false;
   if (
