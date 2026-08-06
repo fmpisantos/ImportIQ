@@ -22,6 +22,25 @@ test('comparisonCriteria builds the PLAN §5 window (year ±1, mileage ±20k)', 
   const c = comparisonCriteria({ brand: 'BMW', model: '320i', year: 2019, mileageKm: 64000 });
   assert.deepEqual(c.yearRange, [2018, 2020]);
   assert.deepEqual(c.mileageRangeKm, [44000, 84000]);
+  assert.equal(c.mileageToleranceKm, 20000);
+});
+
+test('comparisonCriteria honours a configured mileage band and floors it at 0 km', () => {
+  const listing = { brand: 'BMW', model: '320i', year: 2019, mileageKm: 64000 };
+  const tight = comparisonCriteria(listing, { mileageToleranceKm: 10000 });
+  assert.deepEqual(tight.mileageRangeKm, [54000, 74000]);
+  assert.equal(tight.mileageToleranceKm, 10000);
+
+  // A band wider than the odometer can't produce a negative lower bound.
+  const wide = comparisonCriteria({ ...listing, mileageKm: 5000 }, { mileageToleranceKm: 50000 });
+  assert.deepEqual(wide.mileageRangeKm, [0, 55000]);
+
+  // Exact-mileage-only is allowed; garbage falls back to the ±20k default.
+  assert.deepEqual(comparisonCriteria(listing, { mileageToleranceKm: 0 }).mileageRangeKm, [64000, 64000]);
+  assert.deepEqual(
+    comparisonCriteria(listing, { mileageToleranceKm: 'lots' }).mileageRangeKm,
+    [44000, 84000]
+  );
 });
 
 test('summarise averages valid prices and counts the sample', () => {

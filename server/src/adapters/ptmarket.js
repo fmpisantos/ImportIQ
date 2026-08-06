@@ -16,8 +16,8 @@
 // petrol Transit Courier served a diesel Ranger's average). Computing fresh per
 // listing removes that whole failure mode.
 
-import { getDataSource } from '../config.js';
-import { getComparisonOfficial } from './ptMarketClient.js';
+import { getDataSource, getPtComparisonConfig } from '../config.js';
+import { getComparisonOfficial, comparisonCriteria } from './ptMarketClient.js';
 import { getComparisonCombined } from './direct/ptComparison.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -33,7 +33,7 @@ function ptPremiumFactor(listing) {
 }
 
 /** Mock implementation — synthesised average from a deterministic premium. */
-export async function getComparisonMock(listing) {
+export async function getComparisonMock(listing, opts = {}) {
   const factor = ptPremiumFactor(listing);
   const avg = round2(listing.priceEur * factor);
   // Sample size also derived deterministically.
@@ -44,15 +44,7 @@ export async function getComparisonMock(listing) {
     sampleSize,
     sampleListings: [], // synthesised average — there are no real listings to link
     source: 'mock:standvirtual',
-    criteria: {
-      brand: listing.brand,
-      model: listing.model,
-      yearRange: [listing.year - 1, listing.year + 1],
-      mileageRangeKm: [
-        Math.max(0, listing.mileageKm - 20000),
-        listing.mileageKm + 20000,
-      ],
-    },
+    criteria: comparisonCriteria(listing, opts),
   };
 }
 
@@ -68,8 +60,12 @@ export async function getComparisonMock(listing) {
  */
 export async function getComparison(listing) {
   const source = getDataSource();
-  if (source === 'mock') return getComparisonMock(listing);
-  if (source === 'official') return getComparisonOfficial(listing);
+  // Single config read per listing: the configured PT mileage band is resolved
+  // here (the I/O boundary) and threaded down, so every source builds the SAME
+  // comparison window and the pure criteria/matching code stays config-free.
+  const opts = { mileageToleranceKm: getPtComparisonConfig().mileageToleranceKm };
+  if (source === 'mock') return getComparisonMock(listing, opts);
+  if (source === 'official') return getComparisonOfficial(listing, opts);
   // direct + apify: keyless OLX.pt + Standvirtual
-  return getComparisonCombined(listing);
+  return getComparisonCombined(listing, opts);
 }

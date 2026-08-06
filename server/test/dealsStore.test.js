@@ -35,11 +35,14 @@ function row(o = {}) {
     brand: o.brand ?? 'BMW',
     model: o.model ?? '320d',
     year: o.year ?? 2019,
-    mileage_km: o.mileage_km ?? 90000,
+    // Presence-checked, not `??`: these columns are nullable and some tests need
+    // an explicit null (a car whose odometer or price the source never published).
+    mileage_km: 'mileage_km' in o ? o.mileage_km : 90000,
     fuel_type: o.fuel_type ?? 'Diesel',
-    price_eur: o.price_eur ?? 20000,
+    price_eur: 'price_eur' in o ? o.price_eur : 20000,
     total_landed_eur: o.total_landed_eur ?? null,
     saving_eur: o.saving_eur ?? null,
+    margin_eur: o.margin_eur ?? null,
     verdict: o.verdict ?? 'unknown',
     incomplete: o.incomplete ?? 0,
     enrich_status: o.enrich_status ?? 'complete',
@@ -82,16 +85,89 @@ test('getDealsPage filters, sorts saving DESC (nulls last), and paginates', () =
   // 100, 50, then the null saving last.
   assert.deepEqual(bmw.results.map((r) => r.savingEur), [100, 50, null]);
 
-  // price filter + price sort
+  // price filter + price sort. b is cheaper but has no PT benchmark, so it
+  // ranks below a (see the un-benchmarked tier test below).
   const cheap = getDealsPage({ brand: 'BMW', priceMax: 20000 }, { sort: 'price' });
   assert.equal(cheap.total, 2); // a(20000) and b(15000)
-  assert.equal(cheap.results[0].listing.id, 'b'); // cheapest first
+  assert.deepEqual(cheap.results.map((r) => r.listing.id), ['a', 'b']);
 
   // pagination
   const p1 = getDealsPage({ brand: 'BMW' }, { sort: 'saving', page: 1, pageSize: 2 });
   assert.equal(p1.total, 3);
   assert.equal(p1.totalPages, 2);
   assert.equal(p1.results.length, 2);
+});
+
+test('getDealsPage sinks deals with no PT benchmark under every sort key', () => {
+  // No PT comparables → saving_eur null. It's the cheapest, newest, lowest-mileage
+  // and cheapest-landed of the three, so a naive sort would put it first every time.
+  upsertDeal(
+    row({
+      listing_id: 'noPt', saving_eur: null, price_eur: 5000, year: 2023,
+      mileage_km: 10000, total_landed_eur: 7000,
+    })
+  );
+  upsertDeal(
+    row({
+      listing_id: 'lo', saving_eur: 100, price_eur: 20000, year: 2018,
+      mileage_km: 120000, total_landed_eur: 25000, margin_eur: 100,
+    })
+  );
+  upsertDeal(
+    row({
+      listing_id: 'hi', saving_eur: 900, price_eur: 30000, year: 2019,
+      mileage_km: 90000, total_landed_eur: 35000, margin_eur: 900,
+    })
+  );
+
+  const order = (sort) => getDealsPage({}, { sort }).results.map((r) => r.listing.id);
+  assert.deepEqual(order('saving'), ['hi', 'lo', 'noPt']);
+  assert.deepEqual(order('margin'), ['hi', 'lo', 'noPt']);
+  assert.deepEqual(order('landed'), ['lo', 'hi', 'noPt']);
+  assert.deepEqual(order('price'), ['lo', 'hi', 'noPt']);
+  assert.deepEqual(order('year'), ['hi', 'lo', 'noPt']);
+  assert.deepEqual(order('mileage'), ['hi', 'lo', 'noPt']);
+});
+
+test('getDealsPage ranks an uncostable deal below a costable one that also lacks a benchmark', () => {
+  upsertDeal(row({ listing_id: 'incomplete', saving_eur: null, total_landed_eur: null, incomplete: 1 }));
+  upsertDeal(row({ listing_id: 'noPt', saving_eur: null, total_landed_eur: 9000 }));
+  upsertDeal(row({ listing_id: 'ok', saving_eur: 500, total_landed_eur: 25000 }));
+
+  // 'landed ASC' used to open with the NULL-landed row (SQLite orders NULL first).
+  assert.deepEqual(
+    getDealsPage({}, { sort: 'landed' }).results.map((r) => r.listing.id),
+    ['ok', 'noPt', 'incomplete']
+  );
+});
+
+test('getDealsPage sinks unknown mileage/price to the end of an ascending sort', () => {
+  // A car can be costed AND benchmarked with no odometer — completeness needs
+  // CO₂ + displacement, not mileage. SQLite orders NULL first on ASC, so without
+  // an explicit guard the unknown-mileage car opened "lowest mileage first".
+  upsertDeal(row({ listing_id: 'unknownKm', mileage_km: null, saving_eur: 100 }));
+  upsertDeal(row({ listing_id: 'lowKm', mileage_km: 10000, saving_eur: 100 }));
+  upsertDeal(row({ listing_id: 'highKm', mileage_km: 200000, saving_eur: 100 }));
+
+  assert.deepEqual(
+    getDealsPage({}, { sort: 'mileage' }).results.map((r) => r.listing.id),
+    ['lowKm', 'highKm', 'unknownKm']
+  );
+
+  upsertDeal(row({ listing_id: 'noPrice', price_eur: null, saving_eur: 100, mileage_km: 90000 }));
+  const byPrice = getDealsPage({}, { sort: 'price' }).results.map((r) => r.listing.id);
+  assert.equal(byPrice.at(-1), 'noPrice', 'a deal with no asking price ranks last, not first');
+});
+
+test('getDealsPage filters on both mileage bounds', () => {
+  upsertDeal(row({ listing_id: 'low', mileage_km: 20000, saving_eur: 100 }));
+  upsertDeal(row({ listing_id: 'mid', mileage_km: 90000, saving_eur: 100 }));
+  upsertDeal(row({ listing_id: 'high', mileage_km: 180000, saving_eur: 100 }));
+
+  const ids = (f) => getDealsPage(f, { sort: 'mileage' }).results.map((r) => r.listing.id);
+  assert.deepEqual(ids({ minMileageKm: 50000 }), ['mid', 'high']);
+  assert.deepEqual(ids({ maxMileageKm: 100000 }), ['low', 'mid']);
+  assert.deepEqual(ids({ minMileageKm: 50000, maxMileageKm: 100000 }), ['mid']);
 });
 
 test('getDealsPage filters by fuel type case-insensitively and hides non-active', () => {

@@ -110,6 +110,7 @@ export function buildSearchParams(filters = {}, classification = null) {
   if (filters.priceMin != null) p.set('price.min', String(filters.priceMin));
   if (filters.priceMax != null) p.set('price.max', String(filters.priceMax));
   if (filters.yearFrom != null) p.set('firstRegistrationDate.min', `${filters.yearFrom}-01`);
+  if (filters.minMileageKm != null) p.set('mileage.min', String(filters.minMileageKm));
   if (filters.maxMileageKm != null) p.set('mileage.max', String(filters.maxMileageKm));
 
   // Fuel: mobile.de takes repeated `fuel` params using its own enum values.

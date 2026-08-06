@@ -3,13 +3,37 @@ import FilterForm from '../components/FilterForm.jsx';
 import ResultCard from '../components/ResultCard.jsx';
 import { api, downloadExport } from '../api.js';
 
+// A car with no PT benchmark (no comparables found, too few to trust, or not
+// costable) has no verdict to show, so it never takes a top slot — it sorts
+// below every benchmarked car whatever the key, mirroring the server's ordering
+// (server/src/engine/ranking.js). `savingEur` is the same signal the server
+// uses. Without this tier the client re-sort below would undo it.
+const noBenchmark = (r) => (r.savingEur == null ? 1 : 0);
+const tiered = (fn) => (a, b) => noBenchmark(a) - noBenchmark(b) || fn(a, b);
+
+// Then, within a tier: unknown keys last in EITHER direction, and only then the
+// numeric comparison — the same three steps as the server's rankComputedResults.
+// Reading a key raw would put unknowns FIRST on an ascending sort (`null - 5`
+// coerces to `-5`) or make the comparator inconsistent (`undefined - 5` is NaN,
+// leaving the order unspecified), which is exactly what the benchmark tier
+// exists to prevent. Not every key is always present — a listing can be costed
+// and benchmarked with no odometer (see engine/landedCost.js).
+const num = (v) => (Number.isFinite(v) ? v : null);
+const byKey = (read, desc) =>
+  tiered((a, b) => {
+    const av = num(read(a));
+    const bv = num(read(b));
+    if (av == null || bv == null) return (av == null ? 1 : 0) - (bv == null ? 1 : 0);
+    return desc ? bv - av : av - bv;
+  });
+
 const SORTS = {
-  saving: { label: 'Saving vs PT asking (highest first)', fn: (a, b) => (b.savingEur ?? -Infinity) - (a.savingEur ?? -Infinity) },
-  landed: { label: 'Total landed cost (low → high)', fn: (a, b) => (a.totalLandedCostEur ?? Infinity) - (b.totalLandedCostEur ?? Infinity) },
-  margin: { label: 'Expected resale margin (highest first)', fn: (a, b) => (b.marginEur ?? -Infinity) - (a.marginEur ?? -Infinity) },
-  german: { label: 'German price (low → high)', fn: (a, b) => a.listing.priceEur - b.listing.priceEur },
-  year: { label: 'Year (newest first)', fn: (a, b) => b.listing.year - a.listing.year },
-  mileage: { label: 'Mileage (lowest first)', fn: (a, b) => a.listing.mileageKm - b.listing.mileageKm },
+  saving: { label: 'Saving vs PT asking (highest first)', fn: byKey((r) => r.savingEur, true) },
+  landed: { label: 'Total landed cost (low → high)', fn: byKey((r) => r.totalLandedCostEur, false) },
+  margin: { label: 'Expected resale margin (highest first)', fn: byKey((r) => r.marginEur, true) },
+  german: { label: 'German price (low → high)', fn: byKey((r) => r.listing.priceEur, false) },
+  year: { label: 'Year (newest first)', fn: byKey((r) => r.listing.year, true) },
+  mileage: { label: 'Mileage (lowest first)', fn: byKey((r) => r.listing.mileageKm, false) },
 };
 
 const PAGE_SIZE = 50;

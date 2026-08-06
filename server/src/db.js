@@ -468,13 +468,31 @@ export function countDealsNeedingEnrichment() {
     .get().n;
 }
 
+// Every sort is tiered: deals we could NOT benchmark against the PT market rank
+// below every deal we could, whatever the user picked (engine/ranking.js states
+// the rule; `saving_eur IS NULL` is its SQL form — the column is only filled
+// when the landed cost is complete AND a reliable PT comparison backed it).
+// Without the tier, `landed ASC` opened with the cars we can't value at all
+// (SQLite orders NULL first on ASC) and the source-key sorts scattered
+// unjudgeable cars through the top of page 1.
+const NO_BENCHMARK_LAST = '(saving_eur IS NULL) ASC';
+
+// SQLite orders NULL FIRST on ASC, so every ascending key needs an explicit
+// "unknown last" guard — otherwise a car with no recorded mileage/price/landed
+// cost takes slot #1 within its tier, which is the same defect as the one
+// NO_BENCHMARK_LAST fixes, one column over. Only mileage_km is routinely null
+// (completeness needs CO₂ + displacement, not an odometer — see
+// engine/landedCost.js missingListingFields), but all three columns are
+// nullable, so guard them alike. DESC keys need nothing: NULLs already sort last.
+const unknownLast = (col) => `(${col} IS NULL) ASC`;
+
 const DEAL_SORTS = {
-  saving: 'saving_eur DESC',
-  margin: 'margin_eur DESC',
-  landed: 'total_landed_eur ASC',
-  price: 'price_eur ASC',
-  year: 'year DESC',
-  mileage: 'mileage_km ASC',
+  saving: `${NO_BENCHMARK_LAST}, saving_eur DESC`,
+  margin: `${NO_BENCHMARK_LAST}, margin_eur DESC`,
+  landed: `${NO_BENCHMARK_LAST}, ${unknownLast('total_landed_eur')}, total_landed_eur ASC`,
+  price: `${NO_BENCHMARK_LAST}, ${unknownLast('price_eur')}, price_eur ASC`,
+  year: `${NO_BENCHMARK_LAST}, year DESC`,
+  mileage: `${NO_BENCHMARK_LAST}, ${unknownLast('mileage_km')}, mileage_km ASC`,
 };
 
 const dealNorm = (s) => String(s ?? '').trim().toLowerCase();
@@ -485,7 +503,7 @@ const dealNorm = (s) => String(s ?? '').trim().toLowerCase();
  * shape the live search produced. `total`/`totalPages` count the full match.
  *
  * @param {object} filters  brand, model, yearFrom, priceMin, priceMax,
- *                          maxMileageKm, fuelTypes[]
+ *                          minMileageKm, maxMileageKm, fuelTypes[]
  * @param {object} [opts]   { sort, page, pageSize }
  */
 export function getDealsPage(filters = {}, opts = {}) {
@@ -513,6 +531,10 @@ export function getDealsPage(filters = {}, opts = {}) {
   if (filters.priceMax != null) {
     where.push('price_eur <= @priceMax');
     params.priceMax = Number(filters.priceMax);
+  }
+  if (filters.minMileageKm != null) {
+    where.push('mileage_km >= @minMileageKm');
+    params.minMileageKm = Number(filters.minMileageKm);
   }
   if (filters.maxMileageKm != null) {
     where.push('mileage_km <= @maxMileageKm');

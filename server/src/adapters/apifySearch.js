@@ -25,6 +25,7 @@ function cacheKey(siteKey, filters) {
     priceMin: filters.priceMin ?? null,
     priceMax: filters.priceMax ?? null,
     yearFrom: filters.yearFrom ?? null,
+    minMileageKm: filters.minMileageKm ?? null,
     maxMileageKm: filters.maxMileageKm ?? null,
     fuelTypes: [...(filters.fuelTypes ?? [])].sort(),
     transmission: filters.transmission ?? null,

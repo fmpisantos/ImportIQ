@@ -9,19 +9,32 @@
 // are best-effort and tolerant; adjust the field paths once the granted API's
 // real schema is known.
 
-import { getPtMarketConfig, requireCreds } from '../config.js';
+import { getPtMarketConfig, requireCreds, DEFAULT_MILEAGE_TOLERANCE_KM } from '../config.js';
 import { normalizeModelKey } from './normalize.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const norm = (s) => String(s ?? '').trim().toLowerCase();
 
-/** PLAN.md §5 comparison window: same brand+model, year ±1, mileage ±20,000 km. */
-export function comparisonCriteria(listing) {
+/**
+ * PLAN.md §5 comparison window: same brand+model, year ±1, mileage ± a
+ * tolerance. The mileage band is configurable (Settings → "PT mileage range"),
+ * so the caller passes the resolved value in; unset falls back to
+ * DEFAULT_MILEAGE_TOLERANCE_KM. Pure — that fallback is an imported constant,
+ * not a settings read; the config read happens at the I/O boundary
+ * (adapters/ptmarket.js) and is threaded down through `opts`.
+ *
+ * @param {object} listing  normalised listing (brand/model/year/mileageKm)
+ * @param {object} [opts]   { mileageToleranceKm }
+ */
+export function comparisonCriteria(listing, opts = {}) {
+  const raw = Number(opts.mileageToleranceKm);
+  const tolerance = Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MILEAGE_TOLERANCE_KM;
   return {
     brand: listing.brand,
     model: listing.model,
     yearRange: [listing.year - 1, listing.year + 1],
-    mileageRangeKm: [Math.max(0, listing.mileageKm - 20000), listing.mileageKm + 20000],
+    mileageToleranceKm: tolerance,
+    mileageRangeKm: [Math.max(0, listing.mileageKm - tolerance), listing.mileageKm + tolerance],
   };
 }
 
@@ -175,9 +188,11 @@ export function comparableMatches(c, listing) {
 }
 
 /**
- * Is a comparable inside the PLAN §5 window (year ±1, mileage ±20k)? For
- * sources that can't constrain year/mileage server-side (scraped HTML). A
- * comparable missing the field passes (field-tolerant). Pure.
+ * Is a comparable inside the PLAN §5 window (year ±1, mileage within the band
+ * `criteria` carries — see comparisonCriteria)? For sources that can't constrain
+ * year/mileage server-side (scraped HTML), and to enforce the configured band
+ * ourselves rather than trust a query param. A comparable missing the field
+ * passes (field-tolerant). Pure.
  */
 export function withinComparisonWindow(c, criteria) {
   if (
@@ -608,10 +623,12 @@ async function fetchStandvirtual(listing, criteria) {
 
 /**
  * Live PT comparison for one listing.
+ * @param {object} listing  normalised listing
+ * @param {object} [opts]   { mileageToleranceKm } — the configured PT mileage band
  * @returns {Promise<object>} comparison object (see summarise)
  */
-export async function getComparisonOfficial(listing) {
-  const criteria = comparisonCriteria(listing);
+export async function getComparisonOfficial(listing, opts = {}) {
+  const criteria = comparisonCriteria(listing, opts);
   const provider = getPtMarketConfig().provider;
   const items =
     provider === 'standvirtual'

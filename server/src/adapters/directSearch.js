@@ -24,6 +24,7 @@ import {
 import { searchSiteApify } from './apifySearch.js';
 import { searchListingsViaOfficialApi } from './mobilede.js';
 import { missingListingFields, missingTaxRefinements } from '../engine/landedCost.js';
+import { rankComputedResults } from '../engine/ranking.js';
 
 /** An AS24 listing whose detail page could fill a required field OR a tax refinement. */
 function needsDetailFetch(l) {
@@ -51,6 +52,7 @@ function relevantFilters(filters, extra = {}) {
     priceMin: filters.priceMin ?? null,
     priceMax: filters.priceMax ?? null,
     yearFrom: filters.yearFrom ?? null,
+    minMileageKm: filters.minMileageKm ?? null,
     maxMileageKm: filters.maxMileageKm ?? null,
     fuelTypes: [...(filters.fuelTypes ?? [])].sort(),
     transmission: filters.transmission ?? null,
@@ -76,23 +78,6 @@ function livePageCacheKey(filters, { sort = 'standard', desc = 0, page = 1, page
 // so it must invalidate — mirrors the batch ingest's config-version gate).
 function computedCacheKey(filters, { sort = 'standard', desc = 0, configVersion = '' } = {}) {
   return `direct:as24:computed:${JSON.stringify(relevantFilters(filters, { sort, desc, configVersion }))}`;
-}
-
-/**
- * Order a list of *computed results* by a numeric key, nulls always last
- * (incomplete listings — no saving/landed — sink regardless of direction).
- * Array.sort is stable, so ties keep their incoming order. Pure.
- */
-export function sortComputedNullsLast(computed, sortValue, desc) {
-  const rank = (v) => (v == null || Number.isNaN(v) ? null : v);
-  return [...computed].sort((a, b) => {
-    const av = rank(sortValue(a));
-    const bv = rank(sortValue(b));
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    return desc ? bv - av : av - bv;
-  });
 }
 
 // Run `worker` over items with bounded concurrency — enough to keep detail
@@ -447,7 +432,7 @@ export async function searchListingsDirectPageComputed(filters = {}, opts = {}) 
     const pool = await searchListingsDirect(filters, { now, maxResults: poolCap });
     const enriched = await enrichListingsDirect(pool, { now, limit: pool.length });
     const costed = await mapPool(enriched, 4, (l) => costOne(l));
-    const computed = sortComputedNullsLast(costed, sortValue, desc === 1);
+    const computed = rankComputedResults(costed, sortValue, desc === 1);
 
     // Best-effort raw AS24 match count for the "first N of M" display — one
     // cheap head read, negligible next to the pool scrape + enrich + PT work.

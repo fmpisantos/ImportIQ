@@ -167,8 +167,10 @@ How the official path behaves:
   maps each ad into the normalised listing shape. The make/model tree is fetched
   from the refdata API and cached 30 days (`refdata_cache` table).
 - **PT market**: queries comparable listings (same brand+model, year ±1, mileage
-  ±20,000 km), averages the asking prices, and caches per bucket for 24h
-  (`pt_market_cache` table).
+  within the configured band — ±20,000 km by default, set on the Settings page or
+  via `PT_MILEAGE_RANGE_KM`) and averages the asking prices. Computed fresh per
+  listing — the old bucketed 24h cache (`pt_market_cache`) was retired because a
+  bucket keyed loosely enough to hit served one car's average for another.
 
 ### ⚠️ PT read-access caveat
 

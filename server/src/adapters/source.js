@@ -18,12 +18,12 @@ import {
   searchListingsDirect,
   searchListingsDirectPage,
   searchListingsDirectPageComputed,
-  sortComputedNullsLast,
   enrichListingsDirect,
   enrichOneCached,
 } from './directSearch.js';
 import { POPULAR_BRANDS } from './brands.js';
 import { missingListingFields } from '../engine/landedCost.js';
+import { rankComputedResults } from '../engine/ranking.js';
 
 export async function searchListings(filters = {}, opts = {}) {
   const source = getDataSource();
@@ -86,7 +86,7 @@ export async function searchListingsPagedComputed(filters = {}, opts = {}) {
   // Non-direct: fetch the pool (already carries specs), cost all, rank, slice.
   const pool = await searchListings(filters, { now: opts.now });
   const costed = await Promise.all(pool.map((l) => costOne(l)));
-  const computed = sortComputedNullsLast(costed, sortValue, desc);
+  const computed = rankComputedResults(costed, sortValue, desc);
   const total = computed.length;
   return {
     results: computed.slice((page - 1) * pageSize, page * pageSize),

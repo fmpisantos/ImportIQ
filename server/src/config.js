@@ -246,6 +246,39 @@ export function getPtMarketConfig() {
 }
 
 /**
+ * PLAN.md §5 default mileage band: ±20,000 km around the subject's odometer.
+ * The ONE authority for that number — the pure window builder's fallback
+ * (adapters/ptMarketClient.js comparisonCriteria) and the Settings field's
+ * advertised default (routes/settings.js) both read it from here, so a change
+ * can't half-land. Lives in config.js because that's the "built-in default"
+ * tier of the resolution chain, and because ptMarketClient already imports
+ * this module (importing the other way round would be a cycle).
+ */
+export const DEFAULT_MILEAGE_TOLERANCE_KM = 20000;
+
+/**
+ * PT comparison window tolerances (Settings UI → env → default).
+ *
+ * `mileageToleranceKm` is the ± band around the FOREIGN car's mileage: a PT
+ * listing is only used as a comparable when its odometer falls inside it. It is
+ * pushed into every PT source's query (OLX/Standvirtual filter server-side) and
+ * re-checked locally, so a tighter band means a more like-for-like benchmark —
+ * at the cost of a smaller sample, which can drop the comparison under the
+ * reliability floor and withhold the verdict entirely. 0 is allowed (exact
+ * mileage only) but will almost always be too tight to yield a sample.
+ */
+export function getPtComparisonConfig() {
+  // A blank value is "unset", not 0 — `Number('')` and `Number(' ')` are both 0,
+  // which would silently mean "exact mileage only" and starve every comparison.
+  const stored = rt('pt_mileage_range_km', process.env.PT_MILEAGE_RANGE_KM);
+  const raw = stored == null || String(stored).trim() === '' ? NaN : Number(stored);
+  return {
+    mileageToleranceKm:
+      Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MILEAGE_TOLERANCE_KM,
+  };
+}
+
+/**
  * Which keyless PT comparison sources to merge on the direct/apify path, in
  * order. The orchestrator (adapters/direct/ptComparison.js) fans out to each and
  * combines their comparables; a source that fails is skipped. 'standvirtual' is

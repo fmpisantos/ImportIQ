@@ -63,8 +63,10 @@ function dedupe(items) {
  * Combined PT comparison for one listing across all configured sources.
  *
  * @param {object} listing  normalised listing (brand/model/year/mileageKm)
- * @param {object} [opts]   { sources?, fetchImpl?, … } — opts pass through to
- *                          each source fetcher (e.g. fetchImpl in tests)
+ * @param {object} [opts]   { sources?, fetchImpl?, mileageToleranceKm?, … } —
+ *                          opts pass through to each source fetcher, so the
+ *                          configured mileage band reaches every one of them
+ *                          (e.g. fetchImpl in tests)
  * @returns {Promise<object>} comparison (finalizeComparison shape) + searchUrl +
  *   sources[] per-source breakdown
  */
@@ -85,7 +87,7 @@ export async function getComparisonCombined(listing, opts = {}) {
   // comparison so attachComparison withholds the verdict (verdict → 'unknown')
   // instead of presenting a brand-only average as the PT market value.
   if (!subject.model || !String(subject.model).trim()) {
-    const criteria = comparisonCriteria(subject);
+    const criteria = comparisonCriteria(subject, opts);
     return {
       ...finalizeComparison({ items: [], source: 'pt', criteria, listing: subject }),
       searchUrl: null,
@@ -120,7 +122,11 @@ export async function getComparisonCombined(listing, opts = {}) {
     }
   });
 
-  const criteria = comparisonCriteria(subject);
+  // Must carry `opts` — this is the window REPORTED to the client (the card's
+  // "±N km" chip, the stored result_json). Each source already filtered on its
+  // own copy; building this one without the configured band would describe the
+  // sample by the ±20k default while it was actually gathered under another.
+  const criteria = comparisonCriteria(subject, opts);
   const items = dedupe(merged);
   const sourceLabel =
     perSource.filter((s) => s.sampleSize > 0).map((s) => s.source).join(' + ') || 'pt';

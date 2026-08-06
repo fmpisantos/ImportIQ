@@ -63,6 +63,35 @@ test('getComparisonCombined merges comparables from both sources', async () => {
   assert.ok(out.searchUrl.includes('olx.pt')); // primary link prefers OLX
 });
 
+test('getComparisonCombined reports the window it actually gathered under', async () => {
+  // Regression: the merged comparison echoed a criteria built WITHOUT the
+  // configured band, so the card's "±N km" chip and the stored result_json
+  // described a ±20k window while the sample came from a tighter one.
+  const olxPayload = {
+    data: [olxOffer({ price: 10000, url: 'https://olx.pt/a', modelo: '116', combustivel: 'diesel' })],
+  };
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(String(url));
+    return String(url).includes('olx.pt')
+      ? { ok: true, json: async () => olxPayload }
+      : { ok: true, text: async () => svHtml([]) };
+  };
+
+  const out = await getComparisonCombined(LISTING, {
+    sources: ['olx', 'standvirtual'],
+    fetchImpl,
+    maxPages: 1,
+    resolve: false,
+    mileageToleranceKm: 5000,
+  });
+
+  assert.equal(out.criteria.mileageToleranceKm, 5000);
+  assert.deepEqual(out.criteria.mileageRangeKm, [115000, 125000]);
+  // The same band the sources queried on — reported window and sample agree.
+  assert.ok(urls.some((u) => u.includes('filter_float_quilometros%3Afrom=115000')));
+});
+
 test('getComparisonCombined survives one source failing and reports it', async () => {
   const olxPayload = { data: [olxOffer({ price: 10000, url: 'https://olx.pt/a', modelo: '116', combustivel: 'diesel' })] };
   const fetchImpl = async (url) => {

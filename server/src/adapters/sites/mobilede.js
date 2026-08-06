@@ -42,6 +42,7 @@ export function buildInput(filters = {}, cfg = {}) {
   if (filters.priceMin != null) input.priceFrom = filters.priceMin;
   if (filters.priceMax != null) input.priceTo = filters.priceMax;
   if (filters.yearFrom != null) input.yearFrom = filters.yearFrom;
+  if (filters.minMileageKm != null) input.mileageFrom = filters.minMileageKm;
   if (filters.maxMileageKm != null) input.mileageTo = filters.maxMileageKm;
   if (Array.isArray(filters.fuelTypes) && filters.fuelTypes.length) {
     input.fuelType = filters.fuelTypes[0]; // actor takes a single value

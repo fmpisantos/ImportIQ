@@ -14,6 +14,7 @@ const DEFAULTS = {
   priceMin: '',
   priceMax: '',
   yearFrom: '',
+  minMileageKm: '',
   maxMileageKm: '',
   fuelTypes: [],
   transmission: 'Any',
@@ -47,6 +48,7 @@ export default function FilterForm({ onRun, running }) {
       priceMin: filters.priceMin ? Number(filters.priceMin) : undefined,
       priceMax: filters.priceMax ? Number(filters.priceMax) : undefined,
       yearFrom: filters.yearFrom ? Number(filters.yearFrom) : undefined,
+      minMileageKm: filters.minMileageKm ? Number(filters.minMileageKm) : undefined,
       maxMileageKm: filters.maxMileageKm ? Number(filters.maxMileageKm) : undefined,
       fuelTypes: filters.fuelTypes,
       transmission: filters.transmission,
@@ -55,6 +57,11 @@ export default function FilterForm({ onRun, running }) {
   };
 
   const models = filters.brand ? brands[filters.brand] ?? [] : [];
+
+  // Each mileage bound only offers values the other allows, so the pair can never
+  // be inverted (an empty min/max band would just return nothing).
+  const minOptions = MILEAGES.filter((m) => !filters.maxMileageKm || m <= Number(filters.maxMileageKm));
+  const maxOptions = MILEAGES.filter((m) => !filters.minMileageKm || m >= Number(filters.minMileageKm));
 
   return (
     <form className="filters card" onSubmit={submit}>
@@ -111,10 +118,20 @@ export default function FilterForm({ onRun, running }) {
         </label>
 
         <label>
+          Min mileage
+          <select value={filters.minMileageKm} onChange={(e) => set({ minMileageKm: e.target.value })}>
+            <option value="">Any</option>
+            {minOptions.map((m) => (
+              <option key={m} value={m}>{(m / 1000) + 'k km'}</option>
+            ))}
+          </select>
+        </label>
+
+        <label>
           Max mileage
           <select value={filters.maxMileageKm} onChange={(e) => set({ maxMileageKm: e.target.value })}>
             <option value="">Any</option>
-            {MILEAGES.map((m) => (
+            {maxOptions.map((m) => (
               <option key={m} value={m}>{(m / 1000) + 'k km'}</option>
             ))}
           </select>

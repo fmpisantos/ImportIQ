@@ -23,6 +23,7 @@
 import {
   comparisonCriteria,
   comparableMatches,
+  withinComparisonWindow,
   finalizeComparison,
 } from '../ptMarketClient.js';
 import { classifyTrim } from '../../engine/trim.js';
@@ -184,13 +185,13 @@ const PAGE_SIZE = 50;
  * comparables (NOT yet IQR-trimmed/averaged) plus the human search URL.
  *
  * @param {object} listing  normalised listing (brand/model/year/mileageKm)
- * @param {object} [opts]   { fetchImpl, pageSize, maxComparables }
+ * @param {object} [opts]   { fetchImpl, pageSize, maxComparables, mileageToleranceKm }
  * @returns {Promise<{ items: object[], searchUrl: string, criteria: object,
  *                     source: 'olx.pt' }>}
  */
 export async function fetchComparables(listing, opts = {}) {
   const { fetchImpl = fetch, pageSize = PAGE_SIZE, maxComparables = MAX_COMPARABLES } = opts;
-  const criteria = comparisonCriteria(listing);
+  const criteria = comparisonCriteria(listing, opts);
   const modelQuery = listing.model ? normalizeModelKey(listing.model) : undefined;
   const fuelEnum = OLX_FUEL_ENUM[listing.fuelType];
 
@@ -232,7 +233,14 @@ export async function fetchComparables(listing, opts = {}) {
     if (batch.length < pageSize) break; // last page
   }
 
-  const items = raw.map(extractComparable).filter((c) => comparableMatches(c, listing));
+  // The year/mileage params above are real server-side filters, but the window
+  // is re-checked locally (as on Standvirtual) so the configured mileage band is
+  // enforced by us, not by OLX honouring a query param. Field-tolerant: an offer
+  // that publishes no odometer is kept.
+  const items = raw
+    .map(extractComparable)
+    .filter((c) => comparableMatches(c, listing))
+    .filter((c) => withinComparisonWindow(c, criteria));
   const searchUrl = buildSearchUrl(criteria, modelQuery, brandSlug, fuelEnum);
   return { items, searchUrl, criteria, source: 'olx.pt' };
 }

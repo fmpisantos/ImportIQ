@@ -10,7 +10,12 @@
 
 import { Router } from 'express';
 import { getRuntimeSettings, setActiveSetting, getDb, clearSearchCaches } from '../db.js';
-import { getDataSource, getApifyConfig, getMobiledeConfig } from '../config.js';
+import {
+  getDataSource,
+  getApifyConfig,
+  getMobiledeConfig,
+  DEFAULT_MILEAGE_TOLERANCE_KM,
+} from '../config.js';
 import { mobiledeAccess } from '../adapters/directSearch.js';
 
 const router = Router();
@@ -30,6 +35,14 @@ const FIELDS = [
   { key: 'mobilede_user', env: 'MOBILEDE_USER' },
   { key: 'mobilede_pass', env: 'MOBILEDE_PASS', secret: true },
   { key: 'pt_provider', env: 'PT_PROVIDER', default: 'olx' },
+  // ± band around the foreign car's mileage a PT listing must fall in to be used
+  // as a comparable (config.js getPtComparisonConfig). The advertised default is
+  // read from config so the UI can't claim one number while the engine uses another.
+  {
+    key: 'pt_mileage_range_km',
+    env: 'PT_MILEAGE_RANGE_KM',
+    default: String(DEFAULT_MILEAGE_TOLERANCE_KM),
+  },
   { key: 'olx_api_key', env: 'OLX_API_KEY', secret: true },
   { key: 'standvirtual_token', env: 'STANDVIRTUAL_TOKEN', secret: true },
 ];
@@ -83,6 +96,10 @@ function validate(key, value) {
       return Number.isFinite(Number(v)) && Number(v) > 0 ? null : 'apify_max_per_site must be a positive number';
     case 'direct_max_results':
       return Number.isFinite(Number(v)) && Number(v) > 0 ? null : 'direct_max_results must be a positive number';
+    case 'pt_mileage_range_km':
+      return Number.isFinite(Number(v)) && Number(v) >= 0
+        ? null
+        : 'pt_mileage_range_km must be a number of km (0 or more)';
     case 'apify_use_proxy':
       return BOOLISH.test(v) ? null : 'apify_use_proxy must be a boolean';
     case 'apify_sites': {

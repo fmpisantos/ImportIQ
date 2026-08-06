@@ -92,6 +92,7 @@ export default function SettingsPage() {
         apify_use_proxy: /^(1|true|yes)$/i.test(f.apify_use_proxy.value),
         mobilede_user: f.mobilede_user.value || '',
         pt_provider: f.pt_provider.value,
+        pt_mileage_range_km: f.pt_mileage_range_km.value,
         direct_max_results: f.direct_max_results.value,
         // secret inputs start blank — placeholder shows whether one is stored
         apify_token: '',
@@ -129,6 +130,10 @@ export default function SettingsPage() {
       setError('Pick at least one Apify site to query.');
       return;
     }
+    if (!(Number(form.pt_mileage_range_km) >= 0)) {
+      setError('PT mileage range must be a number of km (0 or more).');
+      return;
+    }
     const updates = {
       data_source: form.data_source,
       apify_sites: form.apify_sites.join(','),
@@ -136,6 +141,7 @@ export default function SettingsPage() {
       apify_use_proxy: form.apify_use_proxy ? 'true' : 'false',
       mobilede_user: form.mobilede_user,
       pt_provider: form.pt_provider,
+      pt_mileage_range_km: String(form.pt_mileage_range_km),
       direct_max_results: String(form.direct_max_results),
     };
     for (const k of SECRET_KEYS) if (form[k] && !clear.has(k)) updates[k] = form[k];
@@ -329,7 +335,25 @@ export default function SettingsPage() {
           <strong> direct</strong> and <strong>apify</strong> modes the comparison uses OLX.pt&apos;s open
           API — no key needed; the credentials below only apply to the <strong>official</strong> source.
         </p>
+        <p className="muted small">
+          <strong>Mileage range</strong> is the ± band around the foreign car&apos;s odometer: a
+          Portuguese listing only counts as a comparable when its mileage falls inside it (a 60 000 km
+          car with ±20 000 km is benchmarked against 40 000–80 000 km cars). Tighter is more
+          like-for-like but finds fewer cars — below 3 comparables the verdict is withheld as
+          unreliable.
+        </p>
         <div className="grid">
+          <label>
+            Mileage range (± km)
+            <input
+              type="number"
+              min="0"
+              step="1000"
+              value={form.pt_mileage_range_km}
+              onChange={(e) => set({ pt_mileage_range_km: e.target.value })}
+            />
+            <span className="field-meta"><SourceTag source={f.pt_mileage_range_km.source} /></span>
+          </label>
           <label>
             Provider
             <select value={form.pt_provider} onChange={(e) => set({ pt_provider: e.target.value })}>

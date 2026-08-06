@@ -132,3 +132,14 @@ test('buildSearchUrl defaults to the standard order, and honours sweep sort/desc
   assert.equal(swept.searchParams.get('sort'), 'price');
   assert.equal(swept.searchParams.get('desc'), '1');
 });
+
+test('buildSearchUrl sends both mileage bounds as AS24 kmfrom/kmto', () => {
+  const url = new URL(buildSearchUrl({ minMileageKm: 30000, maxMileageKm: 120000 }));
+  assert.equal(url.searchParams.get('kmfrom'), '30000');
+  assert.equal(url.searchParams.get('kmto'), '120000');
+
+  // Each bound is independent — one set, the other absent.
+  const openEnded = new URL(buildSearchUrl({ minMileageKm: 30000 }));
+  assert.equal(openEnded.searchParams.get('kmfrom'), '30000');
+  assert.equal(openEnded.searchParams.get('kmto'), null);
+});

@@ -76,7 +76,24 @@ function SavingBadge({ result }) {
   if (result.incomplete) {
     return <span className="badge incomplete">Incomplete</span>;
   }
-  if (result.savingEur == null) return null;
+  // Costable, but no PT benchmark to judge it against — say so rather than
+  // showing nothing. These results are also ranked last (engine/ranking.js), so
+  // the badge explains why the card sits at the bottom of the list.
+  if (result.savingEur == null) {
+    const sampleSize = result.comparison?.sampleSize ?? 0;
+    return (
+      <span
+        className="badge no-benchmark"
+        title={
+          sampleSize > 0
+            ? `Only ${sampleSize} Portuguese comparable${sampleSize === 1 ? '' : 's'} found — too few to stake a verdict on.`
+            : 'No comparable Portuguese listings found for this car, so there is no market value to compare against.'
+        }
+      >
+        No PT match
+      </span>
+    );
+  }
   const saving = result.savingEur >= 0;
   // A low-confidence benchmark gets a muted, asterisked badge so a fragile saving
   // doesn't read as a sure thing.
@@ -151,7 +168,10 @@ function PtMarketModal({ comparison, onClose }) {
             ]
               .filter(Boolean)
               .join(' · ') || 'brand only'}
-            , {comparison.criteria?.yearRange?.join('–')}.
+            , {comparison.criteria?.yearRange?.join('–')}
+            {comparison.criteria?.mileageToleranceKm != null &&
+              `, ±${comparison.criteria.mileageToleranceKm.toLocaleString('pt-PT')} km`}
+            .
             {comparison.engineTier && (
               <>
                 {' '}

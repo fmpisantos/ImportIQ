@@ -224,7 +224,9 @@ For each result, the app fetches or estimates the average Portuguese market pric
 
 - Same brand + model
 - Same year ± 1
-- Similar mileage bracket (±20,000 km)
+- Similar mileage bracket (±20,000 km by default; configurable on the Settings
+  page / `PT_MILEAGE_RANGE_KM` — a comparable is only used when its mileage falls
+  inside that band around the foreign car's)
 
 **Data sources to integrate:**
 - Standvirtual.com (largest PT used car marketplace) — scrape or use unofficial API

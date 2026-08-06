@@ -24,6 +24,7 @@ for (const key of [
   'OLX_API_KEY',
   'STANDVIRTUAL_TOKEN',
   'DIRECT_MAX_RESULTS',
+  'PT_MILEAGE_RANGE_KM',
 ]) {
   delete process.env[key];
 }
@@ -31,7 +32,7 @@ for (const key of [
 const { default: express } = await import('express');
 const { default: settingsRouter } = await import('../src/routes/settings.js');
 const { getDb } = await import('../src/db.js');
-const { getDataSource } = await import('../src/config.js');
+const { getDataSource, getPtComparisonConfig } = await import('../src/config.js');
 
 let server;
 let base;
@@ -133,6 +134,8 @@ const REJECTED = [
   ['unknown apify site', { apify_sites: 'mobilede,ebaymotors' }],
   ['empty apify_sites', { apify_sites: ' , ' }],
   ['non-positive direct_max_results', { direct_max_results: '-5' }],
+  ['negative pt_mileage_range_km', { pt_mileage_range_km: '-1' }],
+  ['non-numeric pt_mileage_range_km', { pt_mileage_range_km: 'lots' }],
   ['unknown setting key', { not_a_setting: 'x' }],
 ];
 
@@ -157,6 +160,22 @@ test('PUT rejects clearing an unknown key', async () => {
 });
 
 // --- Override precedence: override → env → default ----------------------------
+
+test('pt_mileage_range_km defaults to ±20k and the override reaches the config layer', async () => {
+  assert.deepEqual((await getSettings()).fields.pt_mileage_range_km, {
+    value: '20000',
+    source: 'default',
+  });
+  assert.equal(getPtComparisonConfig().mileageToleranceKm, 20000);
+
+  const res = await put({ updates: { pt_mileage_range_km: '5000' } });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).fields.pt_mileage_range_km.source, 'override');
+  assert.equal(getPtComparisonConfig().mileageToleranceKm, 5000);
+
+  await put({ clear: ['pt_mileage_range_km'] });
+  assert.equal(getPtComparisonConfig().mileageToleranceKm, 20000);
+});
 
 test('data_source resolves override over env over default', async () => {
   try {

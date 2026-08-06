@@ -94,6 +94,7 @@ export function buildSearchUrl(
   if (filters.priceMin != null) params.set('pricefrom', String(filters.priceMin));
   if (filters.priceMax != null) params.set('priceto', String(filters.priceMax));
   if (filters.yearFrom != null) params.set('fregfrom', String(filters.yearFrom));
+  if (filters.minMileageKm != null) params.set('kmfrom', String(filters.minMileageKm));
   if (filters.maxMileageKm != null) params.set('kmto', String(filters.maxMileageKm));
   if (Array.isArray(filters.fuelTypes) && filters.fuelTypes.length) {
     const codes = filters.fuelTypes

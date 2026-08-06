@@ -16,6 +16,7 @@ import { getComparison } from '../adapters/ptmarket.js';
 import { buildConfigView, getDealsPage } from '../db.js';
 import { computeLandedCost, attachComparison } from '../engine/landedCost.js';
 import { annotateGermanPriceSanity } from '../engine/priceSanity.js';
+import { sinkWithoutPtBenchmark } from '../engine/ranking.js';
 
 const router = Router();
 
@@ -147,7 +148,11 @@ router.post('/search', async (req, res, next) => {
       });
       const enriched = await enrichListings(paged.listings, { now: now.getTime() });
       const computedResults = await Promise.all(enriched.map(costOne));
-      results = annotateGermanPriceSanity(computedResults);
+      // Keep AS24's ordering but sink the cars with no PT benchmark. Only the
+      // page can be re-ranked here (the source ordered the full set, we hold one
+      // slice), so this is a within-page tidy — the store path and the computed
+      // sorts above rank globally.
+      results = annotateGermanPriceSanity(sinkWithoutPtBenchmark(computedResults));
       total = paged.totalResults;
       totalPages = paged.totalPages;
       totalAvailable = paged.totalAvailable ?? null;

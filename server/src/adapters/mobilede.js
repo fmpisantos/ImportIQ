@@ -137,6 +137,7 @@ export async function searchListingsMock(filters = {}) {
     priceMin,
     priceMax,
     yearFrom,
+    minMileageKm,
     maxMileageKm,
     fuelTypes, // array
     transmission,
@@ -154,6 +155,7 @@ export async function searchListingsMock(filters = {}) {
     if (priceMin != null && l.priceEur < priceMin) return false;
     if (priceMax != null && l.priceEur > priceMax) return false;
     if (yearFrom != null && l.year < yearFrom) return false;
+    if (minMileageKm != null && l.mileageKm < minMileageKm) return false;
     if (maxMileageKm != null && l.mileageKm > maxMileageKm) return false;
     if (fuelSet && !fuelSet.has(norm(l.fuelType))) return false;
     if (transmission && norm(transmission) !== 'any' && norm(l.transmission) !== norm(transmission))

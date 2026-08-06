@@ -68,6 +68,11 @@ test('matchesFilters enforces filters but keeps listings missing a field', () =>
   assert.equal(matchesFilters(listing, { priceMax: 18000 }), false);
   assert.equal(matchesFilters(listing, { priceMax: 19000 }), true);
   assert.equal(matchesFilters(listing, { maxMileageKm: 50000 }), false);
+  assert.equal(matchesFilters(listing, { minMileageKm: 80000 }), false);
+  assert.equal(matchesFilters(listing, { minMileageKm: 50000 }), true);
+  assert.equal(matchesFilters(listing, { minMileageKm: 50000, maxMileageKm: 80000 }), true);
+  // A listing with no odometer isn't dropped by either bound.
+  assert.equal(matchesFilters({ brand: 'BMW' }, { minMileageKm: 50000 }), true);
   assert.equal(matchesFilters(listing, { fuelTypes: ['Diesel'] }), false);
   assert.equal(matchesFilters(listing, { fuelTypes: ['Petrol', 'Diesel'] }), true);
   assert.equal(matchesFilters(listing, { transmission: 'Any' }), true);

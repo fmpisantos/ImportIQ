@@ -93,6 +93,8 @@ select:disabled { opacity: 0.5; }
 .badge.save { background: rgba(46,204,113,0.15); color: var(--green); }
 .badge.premium { background: rgba(255,93,93,0.15); color: var(--red); }
 .badge.incomplete { background: rgba(245,166,35,0.15); color: var(--amber); }
+/* Costable but unjudgeable — no PT benchmark. Neutral, never green/red. */
+.badge.no-benchmark { background: rgba(255,255,255,0.07); color: var(--muted, #9aa); font-weight: 600; cursor: help; }
 /* Low-confidence saving: muted + dashed so a fragile benchmark doesn't read as sure. */
 .badge.uncertain { opacity: 0.7; border: 1px dashed currentColor; cursor: help; }
 

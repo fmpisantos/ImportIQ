@@ -242,8 +242,10 @@ export function dedupeListings(listings) {
  * dropped for that field (we can't prove they violate it).
  */
 export function matchesFilters(listing, filters = {}) {
-  const { brand, model, bodyType, priceMin, priceMax, yearFrom, maxMileageKm, transmission } =
-    filters;
+  const {
+    brand, model, bodyType, priceMin, priceMax, yearFrom,
+    minMileageKm, maxMileageKm, transmission,
+  } = filters;
   const fuelSet =
     Array.isArray(filters.fuelTypes) && filters.fuelTypes.length
       ? new Set(filters.fuelTypes.map(norm))
@@ -261,6 +263,8 @@ export function matchesFilters(listing, filters = {}) {
   if (priceMin != null && listing.priceEur != null && listing.priceEur < priceMin) return false;
   if (priceMax != null && listing.priceEur != null && listing.priceEur > priceMax) return false;
   if (yearFrom != null && listing.year != null && listing.year < yearFrom) return false;
+  if (minMileageKm != null && listing.mileageKm != null && listing.mileageKm < minMileageKm)
+    return false;
   if (maxMileageKm != null && listing.mileageKm != null && listing.mileageKm > maxMileageKm)
     return false;
   if (fuelSet && listing.fuelType && !fuelSet.has(norm(listing.fuelType))) return false;

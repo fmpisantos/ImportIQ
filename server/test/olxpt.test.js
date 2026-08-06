@@ -8,8 +8,9 @@ import {
 } from '../src/adapters/direct/olxpt.js';
 
 // Build an OLX offer in the public-API shape, with structured `params`.
-function offer({ price, url, title, modelo, combustivel, gearbox }) {
+function offer({ price, url, title, modelo, combustivel, gearbox, quilometros }) {
   const params = [{ key: 'price', value: { value: price } }];
+  if (quilometros !== undefined) params.push({ key: 'quilometros', value: String(quilometros) });
   if (modelo !== undefined) params.push({ key: 'modelo', value: { key: modelo, label: modelo } });
   if (combustivel !== undefined)
     params.push({ key: 'combustivel', value: { key: combustivel, label: combustivel } });
@@ -153,6 +154,29 @@ test('getComparisonDirect rejects price outliers before averaging', async () => 
   const out = await getComparisonDirect(listing, { fetchImpl: okFetch({ data }) });
   assert.equal(out.sampleSize, 5); // outlier trimmed
   assert.equal(out.avgPriceEur, 10000);
+});
+
+test('getComparisonDirect applies the configured mileage band to the query and the post-filter', async () => {
+  const data = [
+    offer({ price: 10000, url: 'in', modelo: '116', quilometros: 118000 }),
+    offer({ price: 22000, url: 'out', modelo: '116', quilometros: 95000 }), // outside ±10k
+    offer({ price: 12000, url: 'nokm', modelo: '116' }), // no odometer — field-tolerant, kept
+  ];
+  let calledUrl;
+  const fetchImpl = async (url) => {
+    calledUrl = url;
+    return { ok: true, json: async () => ({ data }) };
+  };
+  const listing = { brand: 'BMW', model: '116', year: 2013, mileageKm: 120000 };
+  const out = await getComparisonDirect(listing, { fetchImpl, mileageToleranceKm: 10000 });
+
+  // The band narrows OLX's own filter…
+  assert.ok(calledUrl.includes('filter_float_quilometros%3Afrom=110000'));
+  assert.ok(calledUrl.includes('filter_float_quilometros%3Ato=130000'));
+  // …and is re-enforced locally, so a 95k km car can't count as a comparable.
+  assert.deepEqual(out.criteria.mileageRangeKm, [110000, 130000]);
+  assert.equal(out.sampleSize, 2);
+  assert.deepEqual(out.sampleListings.map((l) => l.url).sort(), ['in', 'nokm']);
 });
 
 test('getComparisonDirect flags low confidence below 5 matched comparables', async () => {

@@ -176,12 +176,12 @@ async function fetchPage(url, fetchImpl) {
  * post-filters through the shared matcher + comparison window.
  *
  * @param {object} listing  normalised listing (brand/model/year/mileageKm)
- * @param {object} [opts]   { fetchImpl, maxPages }
+ * @param {object} [opts]   { fetchImpl, maxPages, mileageToleranceKm }
  * @returns {Promise<{ items, searchUrl, criteria, source: 'standvirtual' }>}
  */
 export async function fetchComparables(listing, opts = {}) {
   const { fetchImpl = fetch, maxPages = MAX_PAGES } = opts;
-  const criteria = comparisonCriteria(listing);
+  const criteria = comparisonCriteria(listing, opts);
   // Family key for the model enum: "320d" → "320", "Golf" → "golf". A wrong
   // slug yields zero, so we fall back to a brand-only fetch and let the
   // post-filter narrow by model.
