@@ -31,7 +31,12 @@ Follow these rules on every request:
    `completed:` date and a short outcome note to the file's front-matter/body.
    Do not delete task files — moving preserves history.
 
-4. Keep file names descriptive and kebab-case, prefixed with the creation date
+4. **Commit every TODO → DONE move.** Moving a task file to `DONE/` is what
+   marks a feature as implemented, so it always ships as a git commit that
+   includes the code changes *and* the moved task file. See the commit format
+   below. No need to ask first — this rule is the standing authorisation.
+
+5. Keep file names descriptive and kebab-case, prefixed with the creation date
    for natural sorting: `YYYY-MM-DD-short-slug.md`
    (e.g. `2026-06-09-emission-standard-override.md`).
 
@@ -57,6 +62,39 @@ priority: low | medium | high
 
 When moving to `DONE/`, set `status: done` and add `completed: <YYYY-MM-DD>` plus
 a one-line outcome under the body.
+
+### Commit format for completed tasks
+
+One commit per TODO → DONE move, staging the implementation and the moved task
+file together. The **subject** names the feature; the **body** carries the task's
+description (its `## What` / `## Why`, condensed) so `git log` explains the
+change without opening `DONE/`.
+
+```
+feat: <feature title from the task file>
+
+<what the task asked for and why it mattered — 1–3 lines>
+
+Closes TODOs/<YYYY-MM-DD-slug>.md
+```
+
+**If a single commit completes more than one task, append every task's
+description to the body** — one block per feature, in the order they were
+finished, each with its own `Closes` line. Don't drop or merge them into a single
+summary; each moved task file must be traceable to its own paragraph:
+
+```
+feat: <short summary covering both features>
+
+<feature A title>: <description of A>
+Closes TODOs/<...-a>.md
+
+<feature B title>: <description of B>
+Closes TODOs/<...-b>.md
+```
+
+Use the conventional prefix that fits (`feat:`, `fix:`, `chore:`), matching the
+existing history.
 
 ## Commands
 
@@ -94,6 +132,12 @@ over the REST API.
 2. `searchListings(filters)` (`adapters/source.js`) fetches normalised listings.
 3. Per listing: `computeLandedCost()` then `attachComparison()` with the PT
    comparison from `adapters/ptmarket.js`.
+4. Ranking (`engine/ranking.js`): whatever the sort key, results with **no PT
+   benchmark** (`savingEur == null` — no comparables, too few to trust, or an
+   incomplete cost) rank below every benchmarked one. The rule is enforced in
+   three places that must agree: the store's SQL (`DEAL_SORTS` in `db.js`), the
+   live computed/source-ordered paths, and the client re-sort in
+   `web/src/pages/SearchPage.jsx`.
 
 ### Data-source dispatcher — the key seam
 
