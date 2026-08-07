@@ -20,7 +20,7 @@
 // the Settings page for real data, or to `official`/`apify` once keys are set.
 
 import { getRuntimeSettings } from './db.js';
-import { POPULAR_BRANDS } from './adapters/brands.js';
+import { SWEEP_BRANDS } from './adapters/brands.js';
 
 // Read a UI override (stored in SQLite) for `key`, falling back to the supplied
 // env/default value when the override is unset/blank. Read fresh every call so a
@@ -93,7 +93,7 @@ export const SWEEP_PRICE_BANDS = [
  * between segments is fine — runIngest dedupes by listing within a run.
  */
 export function buildDefaultSweepQueries() {
-  return [...SWEEP_PRICE_BANDS, ...Object.keys(POPULAR_BRANDS).map((brand) => ({ brand }))];
+  return [...SWEEP_PRICE_BANDS, ...SWEEP_BRANDS.map((brand) => ({ brand }))];
 }
 
 const num = (v, dflt) => {

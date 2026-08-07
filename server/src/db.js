@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { SEED_COST_CONFIG, SEED_ACTIVE_SETTINGS } from './config/seed.js';
 import { loadVehicleCatalog } from './data/vehicleCatalog.loader.js';
+import { brandSpellings } from './adapters/normalize.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'data');
@@ -513,8 +514,14 @@ export function getDealsPage(filters = {}, opts = {}) {
   const where = ["status = 'active'"];
   const params = {};
   if (filters.brand) {
-    where.push('lower(brand) = @brand');
-    params.brand = dealNorm(filters.brand);
+    // Sources spell the same marque differently ("Skoda"/"Škoda",
+    // "Mercedes-Benz"/"Mercedes Benz"), and SQLite can't fold accents — so match
+    // the stored name against every plausible spelling of the filter's brand.
+    const spellings = brandSpellings(filters.brand);
+    where.push(`lower(brand) IN (${spellings.map((_, i) => `@brand${i}`).join(', ')})`);
+    spellings.forEach((s, i) => {
+      params[`brand${i}`] = s;
+    });
   }
   if (filters.model) {
     where.push('lower(model) LIKE @model');

@@ -36,8 +36,9 @@ freshness and tidiness, not correctness.
 - Sources: US dataset `github.com/abhionlyone/us-car-models-data` (per-year CSVs,
   2010+), Wikidata SPARQL (`query.wikidata.org`), curated overlay
   `server/src/data/vehicleCatalog.js` (aliases + submodels + EU-only models).
-- `SsangYong` currently fails Wikidata label resolution (renamed "KG Mobility");
-  add it to the curated seed or a QID override in the script if needed.
+- `SsangYong` fails Wikidata label resolution (renamed "KG Mobility") — now
+  covered by the curated seed instead; a QID override in the script would still
+  broaden its model list.
 - Matcher: `server/src/engine/vehicleMatch.js`; API `GET /api/vehicles/match`;
   UI test bench = the **Matcher** tab. Tests: `test/vehicleMatch.test.js`,
   `test/vehicleCatalog.test.js`.

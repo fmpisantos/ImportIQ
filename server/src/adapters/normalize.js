@@ -217,6 +217,37 @@ export function slugify(value) {
 const norm = (s) => String(s ?? '').trim().toLowerCase();
 
 /**
+ * Accent- and separator-insensitive brand key: "Škoda"/"Skoda" → "skoda",
+ * "Mercedes-Benz"/"Mercedes Benz" → "mercedesbenz". Sites disagree on both
+ * spellings for the same marque (AS24 writes "Skoda", OLX "Škoda"), so brand
+ * equality is always taken on this key rather than the raw name. Pure.
+ */
+export function brandKey(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * The plausible stored spellings of a brand name, lowercased — the accented and
+ * folded forms, each with the separator written as a space, a hyphen, or not at
+ * all. For exact-match SQL (`lower(brand) IN (…)`), which can't fold accents
+ * itself. Pure.
+ */
+export function brandSpellings(value) {
+  const raw = norm(value);
+  if (!raw) return [];
+  const folded = raw.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const out = new Set();
+  for (const base of [raw, folded]) {
+    for (const sep of [' ', '-', '']) out.add(base.replace(/[\s-]+/g, sep));
+  }
+  return [...out];
+}
+
+/**
  * Drop obvious cross-source duplicates (the same car listed on two sites).
  * Keys on brand+model+year+price+mileage; first occurrence wins, so order the
  * input by source preference.
@@ -251,7 +282,7 @@ export function matchesFilters(listing, filters = {}) {
       ? new Set(filters.fuelTypes.map(norm))
       : null;
 
-  if (brand && listing.brand && norm(listing.brand) !== norm(brand)) return false;
+  if (brand && listing.brand && brandKey(listing.brand) !== brandKey(brand)) return false;
   // Sites name models at different granularities ("A4 Avant" vs "A4", "320" vs
   // "3er") — keep the listing when either name contains the other.
   if (model && listing.model) {

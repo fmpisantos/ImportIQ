@@ -1,18 +1,42 @@
-// Static brand → popular-models map for the filter dropdowns in `apify` mode.
-// The scrapers accept free-text make/model, so this list only needs to cover
-// the common cases users pick from; brand/model can also be typed directly.
+// Brand lists for the search filters and the ingest sweep.
+//
+// The scrapers accept free-text make/model, so these lists only decide what the
+// UI offers as a pick — brand/model can also be typed directly.
 
-export const POPULAR_BRANDS = {
-  Audi: ['A1', 'A3', 'A4', 'A4 Avant', 'A6', 'Q3', 'Q5'],
-  BMW: ['1 Series', '2 Series', '3 Series', '320i', '4 Series', '5 Series', 'X1', 'X3'],
-  'Mercedes-Benz': ['A-Class', 'C-Class', 'C 300 e', 'E-Class', 'GLA', 'GLC'],
-  Volkswagen: ['Golf', 'Polo', 'Passat', 'Tiguan', 'T-Roc', 'ID.3', 'ID.4'],
-  Volvo: ['V40', 'V60', 'XC40', 'XC60', 'XC90'],
-  Toyota: ['Yaris', 'Corolla', 'C-HR', 'RAV4'],
-  Renault: ['Clio', 'Captur', 'Mégane', 'Zoe'],
-  Peugeot: ['208', '308', '2008', '3008'],
-  Ford: ['Fiesta', 'Focus', 'Puma', 'Kuga'],
-  Tesla: ['Model 3', 'Model Y', 'Model S'],
-  Skoda: ['Fabia', 'Octavia', 'Kamiq', 'Karoq'],
-  SEAT: ['Ibiza', 'Leon', 'Arona', 'Ateca'],
-};
+import { VEHICLE_CATALOG } from '../data/vehicleCatalog.js';
+
+/**
+ * Brand → models for the filter dropdowns, derived from the curated vehicle
+ * catalog so the filter list and the matcher (engine/vehicleMatch.js) can never
+ * drift apart: whatever you can filter by, the matcher also knows.
+ *
+ * Curated only — deliberately NOT the generated catalog, whose Wikidata half
+ * carries pre-war/obsolete models ("Peugeot Type 172") that would bury the real
+ * picks in a dropdown. Adding a brand to data/vehicleCatalog.js adds it here.
+ */
+export const FILTER_BRANDS = Object.fromEntries(
+  VEHICLE_CATALOG.map((entry) => [entry.brand, Object.keys(entry.models)]).sort(([a], [b]) =>
+    a.localeCompare(b),
+  ),
+);
+
+/**
+ * Brands the batch ingestor fans its default sweep out across (config.js
+ * buildDefaultSweepQueries). A deliberately short, high-volume subset — every
+ * brand costs one more 400-card sweep per run, so this stays the popular core
+ * rather than the whole filter list.
+ */
+export const SWEEP_BRANDS = [
+  'Audi',
+  'BMW',
+  'Mercedes-Benz',
+  'Volkswagen',
+  'Volvo',
+  'Toyota',
+  'Renault',
+  'Peugeot',
+  'Ford',
+  'Tesla',
+  'Škoda',
+  'SEAT',
+];

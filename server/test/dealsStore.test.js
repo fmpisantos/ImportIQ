@@ -98,6 +98,17 @@ test('getDealsPage filters, sorts saving DESC (nulls last), and paginates', () =
   assert.equal(p1.results.length, 2);
 });
 
+test('the brand filter matches across spellings of the same marque', () => {
+  // AS24 stores "Skoda"; the filter dropdown offers the catalog's "Škoda".
+  upsertDeal(row({ listing_id: 'sk', brand: 'Skoda', model: 'Octavia' }));
+  upsertDeal(row({ listing_id: 'mb', brand: 'Mercedes Benz', model: 'C 220 d' }));
+
+  assert.equal(getDealsPage({ brand: 'Škoda' }).total, 1);
+  assert.equal(getDealsPage({ brand: 'Skoda' }).total, 1);
+  assert.equal(getDealsPage({ brand: 'Mercedes-Benz' }).total, 1);
+  assert.equal(getDealsPage({ brand: 'Porsche' }).total, 0);
+});
+
 test('getDealsPage sinks deals with no PT benchmark under every sort key', () => {
   // No PT comparables → saving_eur null. It's the cheapest, newest, lowest-mileage
   // and cheapest-landed of the three, so a naive sort would put it first every time.

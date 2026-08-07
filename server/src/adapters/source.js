@@ -21,7 +21,7 @@ import {
   enrichListingsDirect,
   enrichOneCached,
 } from './directSearch.js';
-import { POPULAR_BRANDS } from './brands.js';
+import { FILTER_BRANDS } from './brands.js';
 import { missingListingFields } from '../engine/landedCost.js';
 import { rankComputedResults } from '../engine/ranking.js';
 
@@ -111,7 +111,7 @@ export async function enrichListings(listings, opts = {}) {
 
 export async function listBrandsAndModels(opts = {}) {
   const source = getDataSource();
-  if (source === 'apify' || source === 'direct') return POPULAR_BRANDS;
+  if (source === 'apify' || source === 'direct') return FILTER_BRANDS;
   return listMobiledeBrands(opts);
 }
 
